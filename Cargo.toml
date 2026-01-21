@@ -1,0 +1,29 @@
+[package]
+name = "Linux_process_manager"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+sysinfo = "0.29.0"  # For system and process information
+tokio = { version = "1.28.0", features = ["full"] }  # For async runtime
+crossterm = "0.26.0"  # For terminal handling
+procfs = "0.16" # For getting the nice of a system
+chrono = "0.4" # For formatting the start time
+libc = "0.2" # Setting the niceness
+anyhow = "1.0" # Some debugging?
+ratatui = "0.24.0"
+hostname = "0.3" # For getting system hostname
+rhai = "1.16.1"  # or latest version
+cron = "0.12"  # For cron expression parsing
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"  # For config file persistence
+regex = "1.10"  # For regular expression matching in filters
+dirs = "5.0"  # For home directory path
+axum = "0.7"  # For HTTP server (multi-host coordination)
+serde_json = "1.0"  # For JSON serialization (multi-host)
+reqwest = { version = "0.11", features = ["json"] }  # For HTTP client
+egui = "0.24"  # GUI framework
+eframe = "0.24"  # GUI framework backend
+egui_plot = "0.24"  # For graphs in GUI
+egui_extras = "0.24" # For tables in GUI
+clap = { version = "4.4", features = ["derive"] }  # Command-line argument parsing
