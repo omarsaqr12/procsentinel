@@ -8,7 +8,7 @@
 
 **A high-performance Linux process manager built in Rust with both TUI and GUI interfaces**
 
-[Features](#-features) • [Installation](#-installation) • [Usage](#-usage) • [Demo](#-demo) • [Architecture](#-architecture) • [Team](#-team)
+[Highlights](#-technical-highlights) • [Features](#-features) • [Installation](#-installation) • [Usage](#-usage) • [Demo](#-demo) • [Architecture](#-architecture) • [Team](#-team)
 
 </div>
 
@@ -19,6 +19,17 @@
 **ProcSentinel** is a comprehensive Linux process management tool designed for real-time monitoring and control of system processes. Built using Rust for memory safety and performance, it offers dual interfaces: a powerful Terminal User Interface (TUI) for terminal enthusiasts and a modern Graphical User Interface (GUI) for visual monitoring.
 
 The tool bridges the gap between traditional command-line utilities like `htop`/`top` and modern monitoring solutions, providing advanced features such as container detection, namespace grouping, process checkpointing, and automation capabilities.
+
+## ⚡ Technical Highlights
+
+- **Dual front-ends from one backend** — a `ratatui`/`crossterm` TUI and an `egui`/`eframe` GUI share the same process-management core, so every feature works in both.
+- **Async, non-blocking data collection** — built on a multi-threaded `tokio` runtime; metric sampling and the remote agent's HTTP API run off the UI thread to keep the interface responsive while monitoring 1,500+ processes.
+- **AST-based filter engine** — a hand-written recursive-descent parser compiles boolean queries (`AND`/`OR`/`NOT`, parentheses, numeric comparisons, and `~=` regex) into an expression tree, with compiled regexes cached for fast repeated evaluation. See [`filter_parser.rs`](src/filter_parser.rs).
+- **Linux-native introspection** — reads `/proc` directly to detect Docker/Podman/Kubernetes containers from cgroup paths and to group processes by PID/net/mount/UTS/IPC/user namespaces.
+- **Process lifecycle control** — signal delivery, nice-value adjustment, recursive tree termination, and CRIU checkpoint/restore.
+- **~12k lines of Rust** across 17 focused modules, memory-safe with no `unsafe` in the hot paths.
+
+**Stack:** Rust · Tokio · ratatui · egui/eframe · procfs · sysinfo · axum · rhai
 
 ## ✨ Features
 
@@ -63,21 +74,21 @@ The tool bridges the gap between traditional command-line utilities like `htop`/
 ## 🚀 Installation
 
 ### Prerequisites
-- **Operating System**: Linux (primary), macOS, or WSL (with limited features)
-- **Rust**: 1.70+ with Cargo
+- **Operating System**: Linux (primary). macOS/WSL build but with limited feature support (no `/proc`, cgroups, namespaces, or CRIU).
+- **Rust**: 1.85+ with Cargo (the crate uses the 2024 edition)
 - **Optional**: CRIU for checkpoint/restore functionality
 
 ### Build from Source
 
 ```bash
 # Clone the repository
-git clone https://github.com/YOUR_USERNAME/procsentinel.git
+git clone https://github.com/omarsaqr12/procsentinel.git
 cd procsentinel
 
 # Build the project
 cargo build --release
 
-# The binary will be at ./target/release/Linux_process_manager
+# The binary will be at ./target/release/procsentinel
 ```
 
 ### Quick Start
@@ -217,6 +228,8 @@ A demonstration video showcasing ProcSentinel's features is available on Google 
 | Memory Usage | 110-130 MB | 180-220 MB |
 | Refresh Latency | 1.2s | 2.5s |
 | Filter Latency | 0.4-0.9s | 0.7-1.0s |
+
+> Figures are approximate, measured on a typical Linux development machine; actual numbers vary with hardware, refresh interval, and the active view.
 
 ## 🔧 Dependencies
 

@@ -3,7 +3,7 @@
 version = 4
 
 [[package]]
-name = "Linux_process_manager"
+name = "procsentinel"
 version = "0.1.0"
 dependencies = [
  "anyhow",

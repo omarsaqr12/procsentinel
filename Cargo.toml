@@ -1,7 +1,12 @@
 [package]
-name = "Linux_process_manager"
+name = "procsentinel"
 version = "0.1.0"
 edition = "2024"
+description = "A high-performance Linux process manager in Rust with dual TUI (ratatui) and GUI (egui) front-ends."
+license = "MIT"
+repository = "https://github.com/omarsaqr12/procsentinel"
+readme = "README.md"
+default-run = "procsentinel"
 
 [dependencies]
 sysinfo = "0.29.0"  # For system and process information
