@@ -1,287 +1,88 @@
-# ProcSentinel - Linux Process Manager
+# ProcSentinel
 
-<div align="center">
+**A Rust process-inspection and management application for Linux, with terminal and graphical interfaces.**
 
-![Rust](https://img.shields.io/badge/Rust-000000?style=for-the-badge&logo=rust&logoColor=white)
-![Linux](https://img.shields.io/badge/Linux-FCC624?style=for-the-badge&logo=linux&logoColor=black)
-![License](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)
+ProcSentinel combines process listing and filtering with signal delivery, priority changes, resource graphs, grouping by Linux cgroups and namespaces, and optional scheduling and checkpoint/restore integrations. It was developed by a four-person team for **CSCE 3401 — Operating Systems** at the American University in Cairo. The source is the evidence for its implemented features; this repository does **not** include a reproducible performance benchmark or evidence of production hardening.
 
-**A high-performance Linux process manager built in Rust with both TUI and GUI interfaces**
+## What to inspect
 
-[Highlights](#-technical-highlights) • [Features](#-features) • [Installation](#-installation) • [Usage](#-usage) • [Demo](#-demo) • [Architecture](#-architecture) • [Team](#-team)
+| Area | Source | What it demonstrates |
+| --- | --- | --- |
+| Process collection and control | [`src/process.rs`](src/process.rs) | Linux `/proc` information, `sysinfo`, signals, nice values and process launching |
+| Terminal interface | [`src/ui.rs`](src/ui.rs) | `ratatui`/`crossterm` process-management interface |
+| Graphical interface | [`src/gui.rs`](src/gui.rs) | `egui`/`eframe` interface |
+| Filtering | [`src/filter_parser.rs`](src/filter_parser.rs) | Hand-written expression parser and field evaluation |
+| Grouping | [`src/container_view.rs`](src/container_view.rs), [`src/namespace_view.rs`](src/namespace_view.rs) | cgroup-based container identification and namespace discovery |
+| Automation | [`src/scheduler.rs`](src/scheduler.rs), [`src/alert.rs`](src/alert.rs) | Scheduled actions and threshold monitoring |
+| Remote read-only monitoring | [`src/agent.rs`](src/agent.rs), [`src/coordinator.rs`](src/coordinator.rs) | HTTP process-list endpoint and coordinator client |
+| Optional checkpointing | [`src/criu_manager.rs`](src/criu_manager.rs) | CRIU command integration, subject to host and process constraints |
 
-</div>
+The default mode starts the terminal interface. `--gui` starts the graphical interface. `--agent` starts the read-only monitoring endpoint instead. CLI arguments are defined in [`src/main.rs`](src/main.rs).
 
----
+## Build and run
 
-## 📖 Overview
-
-**ProcSentinel** is a comprehensive Linux process management tool designed for real-time monitoring and control of system processes. Built using Rust for memory safety and performance, it offers dual interfaces: a powerful Terminal User Interface (TUI) for terminal enthusiasts and a modern Graphical User Interface (GUI) for visual monitoring.
-
-The tool bridges the gap between traditional command-line utilities like `htop`/`top` and modern monitoring solutions, providing advanced features such as container detection, namespace grouping, process checkpointing, and automation capabilities.
-
-## ⚡ Technical Highlights
-
-- **Dual front-ends from one backend** — a `ratatui`/`crossterm` TUI and an `egui`/`eframe` GUI share the same process-management core, so every feature works in both.
-- **Async, non-blocking data collection** — built on a multi-threaded `tokio` runtime; metric sampling and the remote agent's HTTP API run off the UI thread to keep the interface responsive while monitoring 1,500+ processes.
-- **AST-based filter engine** — a hand-written recursive-descent parser compiles boolean queries (`AND`/`OR`/`NOT`, parentheses, numeric comparisons, and `~=` regex) into an expression tree, with compiled regexes cached for fast repeated evaluation. See [`filter_parser.rs`](src/filter_parser.rs).
-- **Linux-native introspection** — reads `/proc` directly to detect Docker/Podman/Kubernetes containers from cgroup paths and to group processes by PID/net/mount/UTS/IPC/user namespaces.
-- **Process lifecycle control** — signal delivery, nice-value adjustment, recursive tree termination, and CRIU checkpoint/restore.
-- **~12k lines of Rust** across 17 focused modules, memory-safe with no `unsafe` in the hot paths.
-
-**Stack:** Rust · Tokio · ratatui · egui/eframe · procfs · sysinfo · axum · rhai
-
-## ✨ Features
-
-### Core Process Management
-- **Real-time Process Monitoring** - View all running processes with PID, name, CPU/memory usage, status, user, nice value, start time, and more
-- **Process Control** - Kill, stop, terminate, continue processes with safety confirmations
-- **Priority Management** - Adjust nice values (-20 to 19) with permission handling
-- **Process Tree Management** - Kill process trees recursively with dependency warnings
-- **Multi-select Operations** - Batch operations on multiple processes simultaneously
-- **Start New Processes** - Launch processes with custom working directories and environment variables
-
-### Advanced Filtering & Sorting
-- **Simple Filters** - Filter by user, name, PID, PPID
-- **Advanced Boolean Queries** - Complex expressions with AND, OR, NOT operators
-- **Regular Expression Support** - Regex-based name matching
-- **Field Comparisons** - Numeric comparisons (==, !=, >, <, >=, <=)
-- **Multi-field Sorting** - Sort by any process attribute in ascending/descending order
-
-### Visualization & Monitoring
-- **System Dashboard** - CPU, memory, swap, disk usage with real-time graphs
-- **Per-process Graphs** - Individual CPU and memory usage charts
-- **Historical Trends** - Time-series data for trend analysis
-- **Color-coded Metrics** - Visual indicators for resource thresholds
-
-### Resource Grouping
-- **cgroup Grouping** - Aggregate processes by control groups
-- **Container Detection** - Automatic Docker/Podman/Kubernetes container identification
-- **Namespace Views** - Group by PID, network, mount, UTS, IPC, user namespaces
-- **Drill-down Navigation** - Navigate from groups to individual processes
-
-### Automation & Alerts
-- **Custom Alerts** - CPU, memory, and process death threshold notifications
-- **Task Scheduling** - Interval, cron-like, and one-shot task execution
-- **Focus Profiles** - Workflow-based process prioritization (build, editing, presentation)
-- **Scripting Rules** - Rhai scripting language for custom automation
-
-### Advanced Features
-- **CRIU Integration** - Checkpoint and restore processes (when CRIU is available)
-- **Multi-host Monitoring** - Remote process data fetching (read-only)
-- **Process Exit Logging** - Track terminated processes with uptime data
-
-## 🚀 Installation
-
-### Prerequisites
-- **Operating System**: Linux (primary). macOS/WSL build but with limited feature support (no `/proc`, cgroups, namespaces, or CRIU).
-- **Rust**: 1.85+ with Cargo (the crate uses the 2024 edition)
-- **Optional**: CRIU for checkpoint/restore functionality
-
-### Build from Source
+**Requirements:** Linux, a Rust toolchain supporting the 2024 edition (Rust 1.85 or newer), Cargo and any native graphics libraries required by the `eframe` backend on your distribution. CRIU is optional and not needed for ordinary process monitoring. The repository includes `Cargo.lock` for a reproducible dependency selection, not a guarantee of identical behavior on every Linux host.
 
 ```bash
-# Clone the repository
 git clone https://github.com/omarsaqr12/procsentinel.git
 cd procsentinel
-
-# Build the project
-cargo build --release
-
-# The binary will be at ./target/release/procsentinel
+cargo build --locked
+cargo run --locked                 # terminal UI; run in an interactive terminal
+cargo run --locked -- --gui        # graphical UI; needs a desktop environment
+cargo run --locked -- --help       # authoritative CLI options
 ```
 
-### Quick Start
+Run initially as your normal user, **not as root**. Signals and priority changes still require the operating system's normal permissions. Destructive actions can terminate real processes; try the interface on disposable user-owned processes first. The app reads Linux-specific `/proc`, cgroup and namespace data; macOS and WSL behavior has not been validated here.
+
+### Agent mode and its security boundary
 
 ```bash
-# Run in TUI mode (default)
-cargo run --release
-
-# Run in GUI mode
-cargo run --release -- --gui
-
-# Run in agent mode (for multi-host monitoring)
-cargo run --release -- --agent --port 8080
+cargo run --locked -- --agent --port 3000
+# on the same machine:
+curl http://127.0.0.1:3000/api/health
+curl http://127.0.0.1:3000/api/processes
 ```
 
-## 📖 Usage
+The agent binds to **127.0.0.1 only**. Its HTTP API has **no built-in authentication or TLS** and returns process names, users and resource usage. Do not expose it directly to a LAN or the internet. For an authorized remote host, run the agent there and use SSH local port forwarding, for example `ssh -L 3001:127.0.0.1:3000 user@remote-host`; point the local coordinator at `127.0.0.1:3001`. The SSH connection supplies transport security and access control; this does not make the endpoint safe to publish publicly.
 
-### TUI Mode Navigation
+## Filters and features
 
-#### Main Process List
-| Key | Action |
-|-----|--------|
-| `↑/↓` | Navigate processes |
-| `1` | Filter/Sort menu |
-| `2` | Change priority (nice value) |
-| `3` | Kill/Stop/Terminate/Continue |
-| `4` | Per-process graphs |
-| `5` | Process log |
-| `6` | Help |
-| `s` | Statistics dashboard |
-| `g` | Grouped view (cgroups/containers) |
-| `j` | Job scheduler |
-| `n` | Start new process |
-| `p` | Profile management |
-| `A` | Alert management |
-| `c` | Checkpoint management |
-| `m` | Toggle multi-select mode |
-| `Space/Enter` | Select/deselect process |
-| `q` | Quit |
+The expression parser supports `AND`, `OR`, `NOT`, parentheses, field comparisons and regex matching. Example expressions to try in the interface:
 
-#### General Navigation
-| Key | Action |
-|-----|--------|
-| `Esc` | Go back/exit current view |
-| `Tab` | Switch between input fields |
-| `Enter` | Confirm/execute action |
-| `Backspace` | Delete character |
-
-### Advanced Filtering Examples
-
-```
-# Filter processes using more than 50% CPU with names starting with "fi"
+```text
 cpu > 50 AND name ~= "^fi"
-
-# Filter by memory usage
-memory > 200 AND user == "root"
-
-# Complex boolean expressions
-(cpu > 30 OR memory > 500) AND status == "running"
+(memory > 200 OR user == "root") AND status == "Running"
 ```
 
-### Configuration
+The `memory` comparison uses MiB in the implementation. The parser is bespoke and does not implement a complete query language; validate complex or untrusted filters before relying on them. Container and namespace identification uses Linux `/proc` data and may be incomplete when permissions or cgroup naming differ. Task scheduling, alerting, automatic restart and CRIU are advanced capabilities, **not** independently validated operational safeguards.
 
-ProcSentinel stores configuration in `~/.lpm/`:
-- `profiles.toml` - Focus mode profiles
-- `alerts.toml` - Alert configurations
-- `scheduled_tasks.toml` - Scheduled tasks
-- `checkpoints/` - CRIU checkpoint data
+### Important limitations
 
-## 🎬 Demo
+- This repository has no tracked benchmark harness, benchmark environment description or measurements supporting quantitative CPU, memory or latency claims. No throughput or process-count promise is made.
+- Process IDs can be recycled between listing and an action. Confirm the selected process and its identity before signaling, changing priority or terminating a tree; this implementation does not provide an atomic PID-identity guarantee.
+- CRIU restore depends on kernel support, privileges, namespaces, available resources and the target process. It has not been demonstrated as a general-purpose restart mechanism.
+- The agent is read-only but unauthenticated; its default loopback binding is a deliberate safeguard, not a replacement for access control if the design is extended.
+- The tree contains no standalone integration-test suite. The loopback binding has a focused unit test, but real process-management, GUI and CRIU behavior still require Linux-host validation.
 
-A demonstration video showcasing ProcSentinel's features is available on Google Drive:
+## Review and verification
 
-📹 **[Watch Demo Video](https://drive.google.com/drive/folders/1TAH8xwEtSSa2Dmvk5bdUQxbOKBQ9WNZQ)**
-
-## 🏗️ Architecture
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                        main.rs                               │
-│                    (Entry Point)                             │
-└─────────────────────┬───────────────────┬───────────────────┘
-                      │                   │
-          ┌───────────▼───────┐ ┌─────────▼─────────┐
-          │      ui.rs        │ │      gui.rs       │
-          │  (TUI - ratatui)  │ │   (GUI - egui)    │
-          └───────────┬───────┘ └─────────┬─────────┘
-                      │                   │
-                      └─────────┬─────────┘
-                                │
-┌───────────────────────────────▼───────────────────────────────┐
-│                     Shared Backend                             │
-├─────────────┬─────────────┬─────────────┬────────────────────┤
-│ process.rs  │ graph.rs    │ profile.rs  │ scheduler.rs       │
-│ (Core PM)   │ (Metrics)   │ (Profiles)  │ (Task Scheduler)   │
-├─────────────┼─────────────┼─────────────┼────────────────────┤
-│ alert.rs    │ filter_     │ container_  │ namespace_view.rs  │
-│ (Alerts)    │ parser.rs   │ view.rs     │ (NS Grouping)      │
-├─────────────┼─────────────┼─────────────┼────────────────────┤
-│ criu_       │ coordinator │ agent.rs    │ scripting_rules.rs │
-│ manager.rs  │ .rs (Multi) │ (HTTP API)  │ (Rhai Scripts)     │
-└─────────────┴─────────────┴─────────────┴────────────────────┘
-                                │
-┌───────────────────────────────▼───────────────────────────────┐
-│                     System Layer                               │
-│         sysinfo • procfs • libc • /proc filesystem            │
-└───────────────────────────────────────────────────────────────┘
+```bash
+cargo fmt --all -- --check
+cargo check --locked
+cargo test --locked
 ```
 
-### Module Overview
+These are **instructions**, not assertions that those commands passed in this review. For behavioral verification, also run the UI on Linux, send signals only to a disposable process, and confirm that agent mode cannot be reached via a non-loopback address. See [`docs/REVIEW_NOTES.md`](docs/REVIEW_NOTES.md) for the source-audit findings and remaining test requirements.
 
-| Module | Description |
-|--------|-------------|
-| `process.rs` | Core process management, signals, priority control |
-| `ui.rs` | Terminal UI using ratatui/crossterm |
-| `gui.rs` | Graphical UI using egui/eframe |
-| `filter_parser.rs` | Advanced filter expression parser |
-| `graph.rs` | System-wide metrics and graphs |
-| `per_process_graph.rs` | Individual process metrics |
-| `container_view.rs` | Docker/Podman container detection |
-| `namespace_view.rs` | Linux namespace grouping |
-| `process_group.rs` | Process grouping by various criteria |
-| `profile.rs` | Focus mode profile management |
-| `alert.rs` | Threshold-based alerting |
-| `scheduler.rs` | Task scheduling (cron/interval) |
-| `scripting_rules.rs` | Rhai scripting for automation |
-| `criu_manager.rs` | CRIU checkpoint/restore integration |
-| `coordinator.rs` | Multi-host coordination |
-| `agent.rs` | HTTP agent for remote monitoring |
-| `process_log.rs` | Process exit logging |
+## Team and attribution
 
-## 📊 Performance
+| Contributor | Contributions recorded in the original project documentation |
+| --- | --- |
+| Adham Ali | Process listing, sorting, safety confirmations, multi-select and process control |
+| Ebram Thabet | Per-process graphs, dashboard, filtering, profiles and alerts |
+| Omar Saqr | Process signals, priority management, grouping, containers and scheduling |
+| Aabed Elghadban | CRIU integration, coordinator, GUI and visualizations |
 
-| Metric | 500 Processes | 1,500 Processes |
-|--------|---------------|-----------------|
-| CPU Overhead | 2-5% | 3-7% |
-| Memory Usage | 110-130 MB | 180-220 MB |
-| Refresh Latency | 1.2s | 2.5s |
-| Filter Latency | 0.4-0.9s | 0.7-1.0s |
+Submitted to Dr. Mohamed El Halaby for CSCE 3401. These descriptions are the team's documented attribution; they are not an independently verified file-by-file authorship audit.
 
-> Figures are approximate, measured on a typical Linux development machine; actual numbers vary with hardware, refresh interval, and the active view.
-
-## 🔧 Dependencies
-
-- **sysinfo** - System and process information
-- **tokio** - Async runtime
-- **ratatui** - Terminal UI framework
-- **crossterm** - Terminal handling
-- **egui/eframe** - GUI framework
-- **procfs** - Linux /proc filesystem access
-- **chrono** - Date/time handling
-- **rhai** - Scripting language
-- **axum/reqwest** - HTTP server/client for multi-host
-- **serde/toml** - Configuration serialization
-- **regex** - Regular expression support
-- **clap** - Command-line argument parsing
-
-## ⚠️ Known Limitations
-
-- Cron expression parsing supports basic patterns only
-- Remote monitoring is read-only (no remote control)
-- I/O alerts are defined but not fully implemented
-- CRIU integration requires root privileges
-- Process command arguments are not stored (full restart not possible)
-
-## 🛣️ Future Improvements
-
-- Full remote process control with TLS encryption
-- Enhanced cron expression support
-- Persistent historical data (SQLite/PostgreSQL)
-- Role-based access control (RBAC)
-- Plugin system for extensibility
-- Enhanced alerting channels (email, Slack, webhooks)
-
-## 👥 Team
-
-This project was developed as part of **CSCE 3401 - Operating Systems** at The American University in Cairo.
-
-| Name | Contributions |
-|------|---------------|
-| **Adham Ali** | Process listing, sorting, safety confirmations, multi-select, process control |
-| **Ebram Thabet** | Per-process graphs, dashboard, filtering system, profiles, alerts |
-| **Omar Saqr** | Process signals, priority management, grouping, containers, scheduling |
-| **Aabed Elghadban** | CRIU integration, coordinator, GUI implementation, visualizations |
-
-**Submitted to**: Dr. Mohamed El Halaby
-
-## 📄 License
-
-This project is available for educational purposes. See the LICENSE file for details.
-
----
-
-<div align="center">
-Made with ❤️ and Rust
-</div>
+**License:** [MIT](LICENSE). This change does not alter the license.
