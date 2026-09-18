@@ -8,7 +8,7 @@ pub enum GroupType {
     Cgroup,
     Container,
     Namespace(String), // namespace type (e.g., "pid", "net", "mnt")
-    Username, // Group by actual username (e.g., "mohab", "root")
+    Username,          // Group by actual username (e.g., "mohab", "root")
 }
 
 #[derive(Clone)]
@@ -52,13 +52,15 @@ impl ProcessGroupManager {
         for process in processes {
             if let Some(cgroup) = &process.cgroup {
                 let group_id = cgroup.clone();
-                let group = groups.entry(group_id.clone())
+                let group = groups
+                    .entry(group_id.clone())
                     .or_insert_with(|| ProcessGroup::new(GroupType::Cgroup, group_id));
                 group.add_process(process.clone());
             } else {
                 // Processes without cgroup go to "No cgroup"
                 let group_id = "No cgroup".to_string();
-                let group = groups.entry(group_id.clone())
+                let group = groups
+                    .entry(group_id.clone())
                     .or_insert_with(|| ProcessGroup::new(GroupType::Cgroup, group_id));
                 group.add_process(process.clone());
             }
@@ -74,13 +76,15 @@ impl ProcessGroupManager {
         for process in processes {
             if let Some(container_id) = &process.container_id {
                 let group_id = container_id.clone();
-                let group = groups.entry(group_id.clone())
+                let group = groups
+                    .entry(group_id.clone())
                     .or_insert_with(|| ProcessGroup::new(GroupType::Container, group_id));
                 group.add_process(process.clone());
             } else {
                 // Processes not in containers go to "No container"
                 let group_id = "No container".to_string();
-                let group = groups.entry(group_id.clone())
+                let group = groups
+                    .entry(group_id.clone())
                     .or_insert_with(|| ProcessGroup::new(GroupType::Container, group_id));
                 group.add_process(process.clone());
             }
@@ -90,12 +94,15 @@ impl ProcessGroupManager {
     }
 
     /// Group processes by namespace type
-    /// 
+    ///
     /// Note: In Linux, every process should have namespace IDs for all namespace types.
     /// If a process doesn't have a namespace type, it's likely an error reading /proc/<pid>/ns/*.
     /// We exclude such processes from grouping rather than creating a "None" group that could
     /// collide with valid namespace ID 0.
-    pub fn group_by_namespace(processes: &[ProcessInfo], namespace_type: &str) -> Vec<ProcessGroup> {
+    pub fn group_by_namespace(
+        processes: &[ProcessInfo],
+        namespace_type: &str,
+    ) -> Vec<ProcessGroup> {
         let mut groups: HashMap<u64, ProcessGroup> = HashMap::new();
 
         for process in processes {
@@ -103,11 +110,9 @@ impl ProcessGroupManager {
             // Processes without namespace IDs are excluded (likely read errors)
             if let Some(&namespace_id) = process.namespace_ids.get(namespace_type) {
                 let group_id = format!("{}:{}", namespace_type, namespace_id);
-                let group = groups.entry(namespace_id)
-                    .or_insert_with(|| ProcessGroup::new(
-                        GroupType::Namespace(namespace_type.to_string()),
-                        group_id
-                    ));
+                let group = groups.entry(namespace_id).or_insert_with(|| {
+                    ProcessGroup::new(GroupType::Namespace(namespace_type.to_string()), group_id)
+                });
                 group.add_process(process.clone());
             }
             // Explicitly exclude processes without this namespace type
@@ -135,8 +140,12 @@ impl ProcessGroupManager {
         let mut groups: HashMap<String, ProcessGroup> = HashMap::new();
 
         for process in processes {
-            let username = process.user.clone().unwrap_or_else(|| "Unknown".to_string());
-            let group = groups.entry(username.clone())
+            let username = process
+                .user
+                .clone()
+                .unwrap_or_else(|| "Unknown".to_string());
+            let group = groups
+                .entry(username.clone())
                 .or_insert_with(|| ProcessGroup::new(GroupType::Username, username));
             group.add_process(process.clone());
         }
@@ -144,4 +153,3 @@ impl ProcessGroupManager {
         groups.into_values().collect()
     }
 }
-

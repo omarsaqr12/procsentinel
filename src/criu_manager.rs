@@ -1,9 +1,9 @@
 //! CRIU (Checkpoint/Restore in Userspace) integration for fault tolerance
 
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH, Duration};
-use serde::{Deserialize, Serialize};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct CheckpointInfo {
@@ -84,9 +84,11 @@ impl<'de> Deserialize<'de> for CheckpointInfo {
                     }
                 }
 
-                let checkpoint_id = checkpoint_id.ok_or_else(|| de::Error::missing_field("checkpoint_id"))?;
+                let checkpoint_id =
+                    checkpoint_id.ok_or_else(|| de::Error::missing_field("checkpoint_id"))?;
                 let pid = pid.ok_or_else(|| de::Error::missing_field("pid"))?;
-                let process_name = process_name.ok_or_else(|| de::Error::missing_field("process_name"))?;
+                let process_name =
+                    process_name.ok_or_else(|| de::Error::missing_field("process_name"))?;
                 let created_at_secs = created_at_secs.unwrap_or(0);
                 let metadata = metadata;
 
@@ -133,7 +135,7 @@ impl CriuManager {
         // Check if CRIU is available
         let criu_path = Self::find_criu();
         let available = criu_path.is_some();
-        
+
         // Default checkpoint directory
         let checkpoint_base_dir = dirs::home_dir()
             .map(|mut p| {
@@ -142,13 +144,13 @@ impl CriuManager {
                 p
             })
             .unwrap_or_else(|| PathBuf::from("./checkpoints"));
-        
+
         // Create checkpoint directory if it doesn't exist
         if let Some(parent) = checkpoint_base_dir.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
         let _ = std::fs::create_dir_all(&checkpoint_base_dir);
-        
+
         Self {
             criu_path,
             available,
@@ -167,7 +169,7 @@ impl CriuManager {
             PathBuf::from("/usr/local/bin/criu"),
             PathBuf::from("/sbin/criu"),
         ];
-        
+
         for path in possible_paths {
             if path.exists() {
                 // Verify it's actually CRIU
@@ -178,7 +180,7 @@ impl CriuManager {
                 }
             }
         }
-        
+
         // Try to find in PATH
         if let Ok(output) = Command::new("which").arg("criu").output() {
             if output.status.success() {
@@ -190,7 +192,7 @@ impl CriuManager {
                 }
             }
         }
-        
+
         None
     }
 
@@ -205,20 +207,25 @@ impl CriuManager {
         }
 
         let criu_path = self.criu_path.as_ref().ok_or("CRIU path not found")?;
-        
+
         // Generate checkpoint ID if not provided
         let checkpoint_id = checkpoint_id.unwrap_or_else(|| {
-            format!("checkpoint_{}_{}", pid, 
-                SystemTime::now().duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default().as_secs())
+            format!(
+                "checkpoint_{}_{}",
+                pid,
+                SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs()
+            )
         });
-        
+
         let checkpoint_dir = self.checkpoint_base_dir.join(&checkpoint_id);
-        
+
         // Create checkpoint directory
         std::fs::create_dir_all(&checkpoint_dir)
             .map_err(|e| format!("Failed to create checkpoint directory: {}", e))?;
-        
+
         // Run CRIU dump command
         let output = Command::new(criu_path)
             .arg("dump")
@@ -229,17 +236,15 @@ impl CriuManager {
             .arg("--leave-running") // Keep process running after checkpoint
             .output()
             .map_err(|e| format!("Failed to execute CRIU: {}", e))?;
-        
+
         if !output.status.success() {
             let error_msg = String::from_utf8_lossy(&output.stderr);
             return Err(format!("CRIU checkpoint failed: {}", error_msg));
         }
-        
+
         let now = SystemTime::now();
-        let created_at_secs = now.duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        
+        let created_at_secs = now.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+
         let checkpoint_info = CheckpointInfo {
             checkpoint_id: checkpoint_id.clone(),
             pid,
@@ -249,28 +254,28 @@ impl CriuManager {
             created_at_secs,
             metadata: Some(format!("PID: {}, Process: {}", pid, process_name)),
         };
-        
+
         // Save checkpoint metadata
         self.save_checkpoint_metadata(&checkpoint_info)?;
-        
+
         Ok(checkpoint_info)
     }
 
-    pub fn restore_process(
-        &self,
-        checkpoint_id: &str,
-    ) -> Result<u32, String> {
+    pub fn restore_process(&self, checkpoint_id: &str) -> Result<u32, String> {
         if !self.available {
             return Err("CRIU is not available on this system.".to_string());
         }
 
         let criu_path = self.criu_path.as_ref().ok_or("CRIU path not found")?;
         let checkpoint_dir = self.checkpoint_base_dir.join(checkpoint_id);
-        
+
         if !checkpoint_dir.exists() {
-            return Err(format!("Checkpoint directory not found: {:?}", checkpoint_dir));
+            return Err(format!(
+                "Checkpoint directory not found: {:?}",
+                checkpoint_dir
+            ));
         }
-        
+
         // Run CRIU restore command
         // Note: CRIU restore typically requires root privileges and specific setup
         // This is a simplified implementation
@@ -281,12 +286,15 @@ impl CriuManager {
             .arg("-d") // Detach from terminal
             .output()
             .map_err(|e| format!("Failed to execute CRIU restore: {}", e))?;
-        
+
         if !output.status.success() {
             let error_msg = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("CRIU restore failed: {}. Note: CRIU restore typically requires root privileges and proper setup.", error_msg));
+            return Err(format!(
+                "CRIU restore failed: {}. Note: CRIU restore typically requires root privileges and proper setup.",
+                error_msg
+            ));
         }
-        
+
         // Try to read PID from checkpoint directory
         // CRIU stores the PID in various files, this is a simplified approach
         // In a real implementation, you'd parse the CRIU image files
@@ -296,7 +304,7 @@ impl CriuManager {
                 return Ok(pid);
             }
         }
-        
+
         // If we can't get PID from file, return a placeholder
         // In practice, CRIU restore would give us the PID
         Ok(0) // Placeholder - actual implementation would track restored PID
@@ -304,20 +312,22 @@ impl CriuManager {
 
     pub fn list_checkpoints(&self) -> Vec<CheckpointInfo> {
         let mut checkpoints = Vec::new();
-        
+
         if !self.checkpoint_base_dir.exists() {
             return checkpoints;
         }
-        
+
         // Load from metadata file
         let metadata_file = self.checkpoint_base_dir.join("checkpoints.toml");
         if let Ok(content) = std::fs::read_to_string(&metadata_file) {
             if let Ok(mut metadata_list) = toml::from_str::<Vec<CheckpointInfo>>(&content) {
                 // Restore SystemTime and PathBuf from serialized data
                 for checkpoint in &mut metadata_list {
-                    checkpoint.created_at = UNIX_EPOCH + std::time::Duration::from_secs(checkpoint.created_at_secs);
-                    checkpoint.checkpoint_dir = self.checkpoint_base_dir.join(&checkpoint.checkpoint_id);
-                    
+                    checkpoint.created_at =
+                        UNIX_EPOCH + std::time::Duration::from_secs(checkpoint.created_at_secs);
+                    checkpoint.checkpoint_dir =
+                        self.checkpoint_base_dir.join(&checkpoint.checkpoint_id);
+
                     // Filter out checkpoints that no longer exist
                     if checkpoint.checkpoint_dir.exists() {
                         checkpoints.push(checkpoint.clone());
@@ -325,25 +335,33 @@ impl CriuManager {
                 }
             }
         }
-        
+
         // Also scan directory for checkpoints without metadata
         if let Ok(entries) = std::fs::read_dir(&self.checkpoint_base_dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
-                if path.is_dir() && path.file_name().and_then(|n| n.to_str()).map(|s| s.starts_with("checkpoint_")).unwrap_or(false) {
+                if path.is_dir()
+                    && path
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .map(|s| s.starts_with("checkpoint_"))
+                        .unwrap_or(false)
+                {
                     let checkpoint_id = path.file_name().unwrap().to_string_lossy().to_string();
-                    
+
                     // Check if already in list
                     if !checkpoints.iter().any(|c| c.checkpoint_id == checkpoint_id) {
                         // Try to load metadata or create basic info
-                        let created_at = entry.metadata()
+                        let created_at = entry
+                            .metadata()
                             .ok()
                             .and_then(|m| m.created().ok())
                             .unwrap_or_else(|| SystemTime::now());
-                        let created_at_secs = created_at.duration_since(UNIX_EPOCH)
+                        let created_at_secs = created_at
+                            .duration_since(UNIX_EPOCH)
                             .unwrap_or_default()
                             .as_secs();
-                        
+
                         let checkpoint_info = CheckpointInfo {
                             checkpoint_id: checkpoint_id.clone(),
                             pid: 0,
@@ -358,59 +376,60 @@ impl CriuManager {
                 }
             }
         }
-        
+
         // Sort by creation time (newest first)
         checkpoints.sort_by(|a, b| b.created_at_secs.cmp(&a.created_at_secs));
-        
+
         // Restore SystemTime from serialized timestamp
         for checkpoint in &mut checkpoints {
             if checkpoint.created_at == SystemTime::UNIX_EPOCH {
-                checkpoint.created_at = UNIX_EPOCH + std::time::Duration::from_secs(checkpoint.created_at_secs);
+                checkpoint.created_at =
+                    UNIX_EPOCH + std::time::Duration::from_secs(checkpoint.created_at_secs);
             }
         }
-        
+
         checkpoints
     }
 
     pub fn delete_checkpoint(&self, checkpoint_id: &str) -> Result<(), String> {
         let checkpoint_dir = self.checkpoint_base_dir.join(checkpoint_id);
-        
+
         if !checkpoint_dir.exists() {
             return Err(format!("Checkpoint not found: {}", checkpoint_id));
         }
-        
+
         std::fs::remove_dir_all(&checkpoint_dir)
             .map_err(|e| format!("Failed to delete checkpoint: {}", e))?;
-        
+
         // Update metadata file
         let mut checkpoints = self.list_checkpoints();
         checkpoints.retain(|c| c.checkpoint_id != checkpoint_id);
         self.save_all_checkpoints_metadata(&checkpoints)?;
-        
+
         Ok(())
     }
 
     fn save_checkpoint_metadata(&self, checkpoint: &CheckpointInfo) -> Result<(), String> {
         let mut checkpoints = self.list_checkpoints();
-        
+
         // Remove existing checkpoint with same ID
         checkpoints.retain(|c| c.checkpoint_id != checkpoint.checkpoint_id);
         checkpoints.push(checkpoint.clone());
-        
+
         self.save_all_checkpoints_metadata(&checkpoints)
     }
 
     fn save_all_checkpoints_metadata(&self, checkpoints: &[CheckpointInfo]) -> Result<(), String> {
         let metadata_file = self.checkpoint_base_dir.join("checkpoints.toml");
-        
+
         // Convert SystemTime to a serializable format
         // For simplicity, we'll use a simplified serialization
         let content = toml::to_string_pretty(checkpoints)
             .map_err(|e| format!("Failed to serialize checkpoints: {}", e))?;
-        
+
         std::fs::write(&metadata_file, content)
             .map_err(|e| format!("Failed to write checkpoint metadata: {}", e))?;
-        
+
         Ok(())
     }
 
@@ -424,4 +443,3 @@ impl Default for CriuManager {
         Self::new()
     }
 }
-
