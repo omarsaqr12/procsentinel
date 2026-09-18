@@ -1,20 +1,20 @@
 // Project: Linux Process Manager
-mod process;
-mod ui;
-mod graph;
-mod process_log;
-mod scripting_rules;
-mod process_group;
-mod container_view;
-mod namespace_view;
-mod scheduler;
-mod filter_parser;
-mod profile;
-mod alert;
-mod criu_manager;
-mod coordinator;
 mod agent;
+mod alert;
+mod container_view;
+mod coordinator;
+mod criu_manager;
+mod filter_parser;
+mod graph;
 mod gui;
+mod namespace_view;
+mod process;
+mod process_group;
+mod process_log;
+mod profile;
+mod scheduler;
+mod scripting_rules;
+mod ui;
 
 use clap::Parser;
 
@@ -39,7 +39,7 @@ struct Args {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
-    
+
     if args.agent {
         let agent = agent::Agent::new(args.port);
         agent.start().await?;
@@ -50,4 +50,3 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ui::ui_renderer()
     }
 }
-

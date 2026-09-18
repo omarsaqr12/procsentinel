@@ -34,12 +34,17 @@ impl NamespaceGroup {
 }
 
 /// Get all namespace groups for a specific namespace type
-pub fn get_namespace_groups(processes: &[ProcessInfo], namespace_type: &str) -> Vec<NamespaceGroup> {
-    let mut groups: std::collections::HashMap<u64, NamespaceGroup> = std::collections::HashMap::new();
+pub fn get_namespace_groups(
+    processes: &[ProcessInfo],
+    namespace_type: &str,
+) -> Vec<NamespaceGroup> {
+    let mut groups: std::collections::HashMap<u64, NamespaceGroup> =
+        std::collections::HashMap::new();
 
     for process in processes {
         if let Some(&namespace_id) = process.namespace_ids.get(namespace_type) {
-            let group = groups.entry(namespace_id)
+            let group = groups
+                .entry(namespace_id)
                 .or_insert_with(|| NamespaceGroup::new(namespace_type.to_string(), namespace_id));
             group.add_process(process.clone());
         }
@@ -49,11 +54,20 @@ pub fn get_namespace_groups(processes: &[ProcessInfo], namespace_type: &str) -> 
 }
 
 /// Get namespace group details for a specific namespace ID
-pub fn get_namespace_group_details(processes: &[ProcessInfo], namespace_type: &str, namespace_id: u64) -> Option<NamespaceGroup> {
+pub fn get_namespace_group_details(
+    processes: &[ProcessInfo],
+    namespace_type: &str,
+    namespace_id: u64,
+) -> Option<NamespaceGroup> {
     let mut group = NamespaceGroup::new(namespace_type.to_string(), namespace_id);
 
     for process in processes {
-        if process.namespace_ids.get(namespace_type).map(|&id| id == namespace_id).unwrap_or(false) {
+        if process
+            .namespace_ids
+            .get(namespace_type)
+            .map(|&id| id == namespace_id)
+            .unwrap_or(false)
+        {
             group.add_process(process.clone());
         }
     }
@@ -64,4 +78,3 @@ pub fn get_namespace_group_details(processes: &[ProcessInfo], namespace_type: &s
         None
     }
 }
-

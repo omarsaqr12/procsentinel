@@ -37,16 +37,16 @@ impl ContainerInfo {
 
 /// Get all containers from processes
 pub fn get_containers(processes: &[ProcessInfo]) -> Vec<ContainerInfo> {
-    let mut containers: std::collections::HashMap<String, ContainerInfo> = std::collections::HashMap::new();
+    let mut containers: std::collections::HashMap<String, ContainerInfo> =
+        std::collections::HashMap::new();
 
     for process in processes {
         if let Some(container_id) = &process.container_id {
-            let container = containers.entry(container_id.clone())
-                .or_insert_with(|| {
-                    // Try to get container name (could be improved with Docker API)
-                    let name = format!("container_{}", &container_id[..12.min(container_id.len())]);
-                    ContainerInfo::new(container_id.clone(), name)
-                });
+            let container = containers.entry(container_id.clone()).or_insert_with(|| {
+                // Try to get container name (could be improved with Docker API)
+                let name = format!("container_{}", &container_id[..12.min(container_id.len())]);
+                ContainerInfo::new(container_id.clone(), name)
+            });
             container.add_process(process.clone());
         }
     }
@@ -55,21 +55,21 @@ pub fn get_containers(processes: &[ProcessInfo]) -> Vec<ContainerInfo> {
 }
 
 /// Get container details for a specific container ID
-pub fn get_container_details(processes: &[ProcessInfo], container_id: &str) -> Option<ContainerInfo> {
+pub fn get_container_details(
+    processes: &[ProcessInfo],
+    container_id: &str,
+) -> Option<ContainerInfo> {
     // Normalize container_id to short form (first 12 chars) for matching
     let short_id = if container_id.len() > 12 {
         &container_id[..12]
     } else {
         container_id
     };
-    
+
     // Get container name using the shared function
     let container_name = get_container_name(container_id);
-    
-    let mut container = ContainerInfo::new(
-        short_id.to_string(),
-        container_name
-    );
+
+    let mut container = ContainerInfo::new(short_id.to_string(), container_name);
 
     // Match processes by container_id (comparing short IDs)
     for process in processes {
@@ -80,7 +80,7 @@ pub fn get_container_details(processes: &[ProcessInfo], container_id: &str) -> O
             } else {
                 proc_container_id.as_str()
             };
-            
+
             if proc_short_id == short_id {
                 container.add_process(process.clone());
             }
@@ -107,8 +107,27 @@ pub fn get_container_name(container_id: &str) -> String {
     // Try to get container name from Docker
     // Try regular docker first, then sudo if needed (but sudo will prompt for password)
     let commands = vec![
-        (false, vec!["docker", "ps", "--format", "{{.ID}} {{.Names}}", "--no-trunc"]),
-        (true, vec!["sudo", "docker", "ps", "--format", "{{.ID}} {{.Names}}", "--no-trunc"]),
+        (
+            false,
+            vec![
+                "docker",
+                "ps",
+                "--format",
+                "{{.ID}} {{.Names}}",
+                "--no-trunc",
+            ],
+        ),
+        (
+            true,
+            vec![
+                "sudo",
+                "docker",
+                "ps",
+                "--format",
+                "{{.ID}} {{.Names}}",
+                "--no-trunc",
+            ],
+        ),
     ];
 
     for (use_sudo, cmd_args) in commands {
@@ -119,7 +138,7 @@ pub fn get_container_name(container_id: &str) -> String {
             // For now, we'll skip sudo to avoid password prompts
             continue;
         }
-        
+
         if let Ok(output) = std::process::Command::new(cmd_args[0])
             .args(&cmd_args[1..])
             .output()
@@ -129,11 +148,7 @@ pub fn get_container_name(container_id: &str) -> String {
                     for line in output_str.lines() {
                         if let Some((id, name)) = line.split_once(' ') {
                             // Normalize the ID from Docker output to short form
-                            let id_short = if id.len() > 12 {
-                                &id[..12]
-                            } else {
-                                id
-                            };
+                            let id_short = if id.len() > 12 { &id[..12] } else { id };
                             // Match if short IDs are equal (most reliable)
                             if id_short == short_id {
                                 return name.to_string();
@@ -152,4 +167,3 @@ pub fn get_container_name(container_id: &str) -> String {
     // Fallback: return formatted ID
     format!("container_{}", short_id)
 }
-

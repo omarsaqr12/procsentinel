@@ -9,8 +9,8 @@ const PROCESS_TABLE_HEIGHT: usize = 12;
 
 /// Render the per-process graph tab.
 pub fn render_per_process_graph_tab(
-    frame: &mut Frame, 
-    area: Rect, 
+    frame: &mut Frame,
+    area: Rect,
     process_manager: &ProcessManager,
     graph_data: &GraphData,
     selected_process_index: usize,
@@ -112,11 +112,11 @@ pub fn render_per_process_graph_tab(
         // Show process selection list
         let processes = process_manager.get_processes();
         let headers = ["PID", "NAME", "CPU%", "MEM(MB)", "USER"];
-        
+
         let header_cells = headers
             .iter()
             .map(|h| Cell::from(*h).style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD)));
-        
+
         let header = Row::new(header_cells)
             .style(Style::default().bg(Color::Blue))
             .height(1);
@@ -162,4 +162,4 @@ pub fn render_per_process_graph_tab(
 
         frame.render_widget(table, chunks[1]);
     }
-} 
+}

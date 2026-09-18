@@ -5,23 +5,23 @@ use std::time::{Duration, Instant};
 
 // Import Ratatui components
 use ratatui::{
-    widgets::{Block, Borders, Dataset, GraphType, Chart, Paragraph},
-    layout::{Layout, Constraint, Direction, Alignment, Rect},
-    text::{Span, Line},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    text::{Line, Span},
+    widgets::{Block, Borders, Chart, Dataset, GraphType, Paragraph},
 };
 
 // Import Ratatui's color separately to avoid confusion
-use ratatui::style::{Style, Modifier, Color as RatatuiColor};
+use ratatui::style::{Color as RatatuiColor, Modifier, Style};
 
 // Import Crossterm components with explicit namespace
 // use crossterm::{
 //     style::{Color as CrosstermColor, SetForegroundColor, SetBackgroundColor, ResetColor, Attribute, SetAttribute},
-//     ExecutableCommand, 
+//     ExecutableCommand,
 //     QueueableCommand,
 // };
 
-use crate::ui::StatisticsTab;  // Add this at the top with other imports
 use crate::process::ProcessInfo;
+use crate::ui::StatisticsTab; // Add this at the top with other imports
 
 // Add this struct at the top with other structs
 pub struct CpuInfo {
@@ -47,7 +47,7 @@ pub struct GraphData {
     max_points: usize,
     last_update: Instant,
     update_interval: Duration,
-    cpu_infos: Vec<CpuInfo>,  // Keep this for per-core display
+    cpu_infos: Vec<CpuInfo>, // Keep this for per-core display
     per_process_history: std::collections::HashMap<u32, (VecDeque<f32>, VecDeque<u64>)>,
 }
 
@@ -67,13 +67,15 @@ impl GraphData {
     fn update_cpu_info(&mut self) {
         if let Ok(stat) = std::fs::read_to_string("/proc/stat") {
             let lines: Vec<&str> = stat.lines().collect();
-            
+
             // Handle individual cores for the CPU bars display
             for (i, cpu_info) in self.cpu_infos.iter_mut().enumerate() {
-                if let Some(line) = lines.get(i + 1) {  // Skip first line (aggregate CPU)
+                if let Some(line) = lines.get(i + 1) {
+                    // Skip first line (aggregate CPU)
                     if line.starts_with("cpu") {
-                        let values: Vec<u64> = line.split_whitespace()
-                            .skip(1)  // Skip "cpu" prefix
+                        let values: Vec<u64> = line
+                            .split_whitespace()
+                            .skip(1) // Skip "cpu" prefix
                             .filter_map(|val| val.parse().ok())
                             .collect();
 
@@ -85,7 +87,8 @@ impl GraphData {
                             let total_delta = total - cpu_info.last_total;
 
                             if total_delta > 0 {
-                                cpu_info.usage = 100.0 * (1.0 - (idle_delta as f32 / total_delta as f32));
+                                cpu_info.usage =
+                                    100.0 * (1.0 - (idle_delta as f32 / total_delta as f32));
                             }
 
                             cpu_info.last_idle = idle;
@@ -105,19 +108,20 @@ impl GraphData {
 
         // Update CPU info for the per-core display
         self.update_cpu_info();
-        
+
         // Get total CPU usage from all processes
-        let total_cpu: f32 = process_manager.get_processes()
+        let total_cpu: f32 = process_manager
+            .get_processes()
             .iter()
             .map(|p| p.cpu_usage)
             .sum();
-        
+
         // Add to history and maintain max size
         self.cpu_history.push_back(total_cpu);
         while self.cpu_history.len() > self.max_points {
             self.cpu_history.pop_front();
         }
-        
+
         // Use system memory usage from /proc/meminfo
         let (_mem_total, mem_used, _mem_free, _mem_cached, _mem_available) = get_memory_info();
         let total_memory = mem_used / 1024; // Convert to MB
@@ -125,17 +129,25 @@ impl GraphData {
         while self.memory_history.len() > self.max_points {
             self.memory_history.pop_front();
         }
-        
+
         // Update per-process history (leave as is for per-process graphs)
-        let current_pids: std::collections::HashSet<u32> = process_manager.get_processes()
+        let current_pids: std::collections::HashSet<u32> = process_manager
+            .get_processes()
             .iter()
             .map(|p| p.pid)
             .collect();
-        self.per_process_history.retain(|&pid, _| current_pids.contains(&pid));
+        self.per_process_history
+            .retain(|&pid, _| current_pids.contains(&pid));
         for process in process_manager.get_processes() {
-            let entry = self.per_process_history.entry(process.pid).or_insert_with(|| {
-                (VecDeque::with_capacity(self.max_points), VecDeque::with_capacity(self.max_points))
-            });
+            let entry = self
+                .per_process_history
+                .entry(process.pid)
+                .or_insert_with(|| {
+                    (
+                        VecDeque::with_capacity(self.max_points),
+                        VecDeque::with_capacity(self.max_points),
+                    )
+                });
             entry.0.push_back(process.cpu_usage);
             entry.1.push_back(process.memory_usage);
             while entry.0.len() > self.max_points {
@@ -161,7 +173,9 @@ impl GraphData {
     }
 
     pub fn get_process_history(&self, pid: u32) -> Option<(&VecDeque<f32>, &VecDeque<u64>)> {
-        self.per_process_history.get(&pid).map(|(cpu, mem)| (cpu, mem))
+        self.per_process_history
+            .get(&pid)
+            .map(|(cpu, mem)| (cpu, mem))
     }
 }
 
@@ -183,13 +197,15 @@ pub fn render_graph_dashboard(
     render_tabs(frame, main_chunks[0], current_tab);
     match current_tab {
         StatisticsTab::Graphs => render_graphs_tab(frame, main_chunks[1], graph_data),
-        StatisticsTab::Overview => render_overview_tab(frame, main_chunks[1], graph_data, process_list),
+        StatisticsTab::Overview => {
+            render_overview_tab(frame, main_chunks[1], graph_data, process_list)
+        }
         StatisticsTab::CPU => render_cpu_tab(frame, main_chunks[1], graph_data),
         StatisticsTab::Memory => render_memory_tab(frame, main_chunks[1]),
         StatisticsTab::Disk => render_disk_tab(frame, main_chunks[1]),
         StatisticsTab::Processes => {
             render_processes_tab(frame, main_chunks[1], process_list);
-        },
+        }
         StatisticsTab::Advanced => render_advanced_tab(frame, main_chunks[1], graph_data),
         StatisticsTab::PerProcessGraph | StatisticsTab::ProcessLog | StatisticsTab::Help => {
             // Placeholder
@@ -214,47 +230,50 @@ pub fn render_tabs(frame: &mut ratatui::Frame, area: Rect, current_tab: &Statist
 
     let title = Line::from(vec![
         Span::styled("Current View: ", Style::default().fg(RatatuiColor::Black)),
-        Span::styled(current_tab_name, 
+        Span::styled(
+            current_tab_name,
             Style::default()
                 .fg(RatatuiColor::Black)
-                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)),
+                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
+        ),
         Span::raw(" "),
-        Span::styled("[1] Graphs  [2] Overview  [3] CPU  [4] Memory  [5] Disk  [6] Processes  [7] Advanced ", Style::default().fg(RatatuiColor::Black)),
-        Span::styled("[S/Esc] Return", Style::default().fg(RatatuiColor::Black))
+        Span::styled(
+            "[1] Graphs  [2] Overview  [3] CPU  [4] Memory  [5] Disk  [6] Processes  [7] Advanced ",
+            Style::default().fg(RatatuiColor::Black),
+        ),
+        Span::styled("[S/Esc] Return", Style::default().fg(RatatuiColor::Black)),
     ]);
 
-    let header = Paragraph::new(title)
-        .alignment(Alignment::Left)
-        .block(Block::default().borders(Borders::ALL).style(Style::default().fg(RatatuiColor::Black)));
+    let header = Paragraph::new(title).alignment(Alignment::Left).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .style(Style::default().fg(RatatuiColor::Black)),
+    );
 
     frame.render_widget(header, area);
 }
 
-pub fn render_graphs_tab(
-    frame: &mut ratatui::Frame,
-    area: Rect,
-    graph_data: &GraphData,
-) {
+pub fn render_graphs_tab(frame: &mut ratatui::Frame, area: Rect, graph_data: &GraphData) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(4),   // CPU Bars (2 rows of 8 CPUs)
-            Constraint::Length(3),   // Memory/Swap Bars with spacing
-            Constraint::Percentage(45),  // CPU Graph
-            Constraint::Percentage(45),  // Memory Graph
+            Constraint::Length(4),      // CPU Bars (2 rows of 8 CPUs)
+            Constraint::Length(3),      // Memory/Swap Bars with spacing
+            Constraint::Percentage(45), // CPU Graph
+            Constraint::Percentage(45), // Memory Graph
         ])
         .split(area);
 
     // Render CPU bars (similar to htop)
     render_cpu_bars(frame, chunks[0], graph_data);
-    
+
     // Create a sub-layout for memory bars with spacing
     let mem_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1),   // Memory bar
-            Constraint::Length(1),   // Spacing
-            Constraint::Length(1),   // Swap bar
+            Constraint::Length(1), // Memory bar
+            Constraint::Length(1), // Spacing
+            Constraint::Length(1), // Swap bar
         ])
         .split(chunks[1]);
 
@@ -270,7 +289,7 @@ fn render_cpu_bars(frame: &mut ratatui::Frame, area: Rect, graph_data: &GraphDat
     let num_cpus = get_cpu_count();
     let cpus_per_row = 8;
     let num_rows = (num_cpus + cpus_per_row - 1) / cpus_per_row;
-    
+
     let row_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints(vec![Constraint::Length(2); num_rows])
@@ -283,12 +302,18 @@ fn render_cpu_bars(frame: &mut ratatui::Frame, area: Rect, graph_data: &GraphDat
 
         let cpu_chunks = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints(vec![Constraint::Percentage((100 / cpus_per_row) as u16); cpus_per_row])
+            .constraints(vec![
+                Constraint::Percentage((100 / cpus_per_row) as u16);
+                cpus_per_row
+            ])
             .split(row_chunks[row]);
 
         for (i, chunk) in cpu_chunks.iter().take(num_cpus_this_row).enumerate() {
             let cpu_index = start_cpu + i;
-            let cpu_usage = graph_data.get_cpu_infos().get(cpu_index).map_or(0.0, |info| info.usage);
+            let cpu_usage = graph_data
+                .get_cpu_infos()
+                .get(cpu_index)
+                .map_or(0.0, |info| info.usage);
 
             // Create a vertical bar using Unicode box-drawing characters
             let bar_height = ((cpu_usage / 100.0) * 8.0).round() as usize;
@@ -298,16 +323,17 @@ fn render_cpu_bars(frame: &mut ratatui::Frame, area: Rect, graph_data: &GraphDat
 
             let label = format!("{:>2} [{:>3}%]", cpu_index, cpu_usage as u16);
             let text = vec![
-                Line::from(vec![
-                    Span::styled(label, Style::default().fg(RatatuiColor::Black)),
-                ]),
-                Line::from(vec![
-                    Span::styled(vertical_bar, Style::default().fg(get_usage_color(cpu_usage)))
-                ])
+                Line::from(vec![Span::styled(
+                    label,
+                    Style::default().fg(RatatuiColor::Black),
+                )]),
+                Line::from(vec![Span::styled(
+                    vertical_bar,
+                    Style::default().fg(get_usage_color(cpu_usage)),
+                )]),
             ];
 
-            let cpu_widget = Paragraph::new(text)
-                .alignment(Alignment::Left);
+            let cpu_widget = Paragraph::new(text).alignment(Alignment::Left);
 
             frame.render_widget(cpu_widget, *chunk);
         }
@@ -318,7 +344,7 @@ fn render_memory_bars(
     frame: &mut ratatui::Frame,
     mem_area: Rect,
     swap_area: Rect,
-    _graph_data: &GraphData
+    _graph_data: &GraphData,
 ) {
     // Calculate memory usage
     let (mem_total, mem_used, _mem_free, _mem_cached, _mem_available) = get_memory_info();
@@ -332,7 +358,11 @@ fn render_memory_bars(
     let memory_gauge = ratatui::widgets::Gauge::default()
         .gauge_style(Style::default().fg(get_usage_color(memory_percentage as f32)))
         .percent(memory_percentage)
-        .label(format!("Mem [{:>4}M/{:>4}M]", mem_used / 1024, mem_total / 1024));
+        .label(format!(
+            "Mem [{:>4}M/{:>4}M]",
+            mem_used / 1024,
+            mem_total / 1024
+        ));
 
     // Swap bar (reading from /proc/swaps)
 
@@ -342,7 +372,7 @@ fn render_memory_bars(
     // } else {
     //     0
     // };
-    
+
     //fixes the panic that happens when screen is not full
     let swap_percentage = if swap_total > 0 && swap_used <= swap_total {
         let ratio = swap_used as f64 / swap_total as f64;
@@ -351,8 +381,6 @@ fn render_memory_bars(
     } else {
         0
     };
-    
-    
 
     let swap_gauge = ratatui::widgets::Gauge::default()
         .gauge_style(Style::default().fg(get_usage_color(swap_percentage as f32)))
@@ -377,11 +405,8 @@ fn get_swap_info() -> (u64, u64) {
         if let Some(swap_line) = swaps.lines().nth(1) {
             let parts: Vec<&str> = swap_line.split_whitespace().collect();
             if parts.len() >= 4 {
-                if let (Ok(total), Ok(used)) = (
-                    parts[2].parse::<u64>(),
-                    parts[3].parse::<u64>(),
-                ) {
-                    return (used / 1024, total / 1024);  // Convert KB to MB
+                if let (Ok(total), Ok(used)) = (parts[2].parse::<u64>(), parts[3].parse::<u64>()) {
+                    return (used / 1024, total / 1024); // Convert KB to MB
                 }
             }
         }
@@ -389,35 +414,68 @@ fn get_swap_info() -> (u64, u64) {
     (0, 0)
 }
 
-pub fn render_overview_tab(frame: &mut ratatui::Frame, area: Rect, graph_data: &GraphData, process_list: &[ProcessInfo]) {
+pub fn render_overview_tab(
+    frame: &mut ratatui::Frame,
+    area: Rect,
+    graph_data: &GraphData,
+    process_list: &[ProcessInfo],
+) {
     let chunks = ratatui::layout::Layout::default()
         .direction(ratatui::layout::Direction::Vertical)
         .constraints([
-            ratatui::layout::Constraint::Length(7),   // System Overview
-            ratatui::layout::Constraint::Length(6),   // CPU Summary
-            ratatui::layout::Constraint::Length(5),   // Memory Summary
-            ratatui::layout::Constraint::Length(6),   // Disk Summary (increased from 4 to 6)
-            ratatui::layout::Constraint::Length(4),   // Process States
-            ratatui::layout::Constraint::Min(1),      // Spacer
+            ratatui::layout::Constraint::Length(7), // System Overview
+            ratatui::layout::Constraint::Length(6), // CPU Summary
+            ratatui::layout::Constraint::Length(5), // Memory Summary
+            ratatui::layout::Constraint::Length(6), // Disk Summary (increased from 4 to 6)
+            ratatui::layout::Constraint::Length(4), // Process States
+            ratatui::layout::Constraint::Min(1),    // Spacer
         ])
         .split(area);
 
     // System Overview
     let (boot_time, last_reboot) = get_boot_time();
-    let hostname = hostname::get().unwrap_or_default().to_string_lossy().to_string();
+    let hostname = hostname::get()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
     let os_info = get_os_info();
     let kernel_version = std::fs::read_to_string("/proc/version").unwrap_or_default();
     let uptime = get_system_uptime();
     let sys_overview = vec![
-        Line::from(vec![Span::styled("System Overview", Style::default().fg(RatatuiColor::Black).add_modifier(Modifier::BOLD))]),
-        Line::from(vec![Span::styled("Hostname: ", Style::default().fg(RatatuiColor::Black)), Span::styled(&hostname, Style::default().fg(RatatuiColor::Black))]),
-        Line::from(vec![Span::styled("OS: ", Style::default().fg(RatatuiColor::Black)), Span::styled(&os_info, Style::default().fg(RatatuiColor::Black))]),
-        Line::from(vec![Span::styled("Kernel: ", Style::default().fg(RatatuiColor::Black)), Span::styled(&kernel_version, Style::default().fg(RatatuiColor::Black))]),
-        Line::from(vec![Span::styled("Boot Time: ", Style::default().fg(RatatuiColor::Black)), Span::styled(&boot_time, Style::default().fg(RatatuiColor::Black))]),
-        Line::from(vec![Span::styled("Last Reboot: ", Style::default().fg(RatatuiColor::Black)), Span::styled(&last_reboot, Style::default().fg(RatatuiColor::Black))]),
-        Line::from(vec![Span::styled("Uptime: ", Style::default().fg(RatatuiColor::Black)), Span::styled(&uptime, Style::default().fg(RatatuiColor::Black))]),
+        Line::from(vec![Span::styled(
+            "System Overview",
+            Style::default()
+                .fg(RatatuiColor::Black)
+                .add_modifier(Modifier::BOLD),
+        )]),
+        Line::from(vec![
+            Span::styled("Hostname: ", Style::default().fg(RatatuiColor::Black)),
+            Span::styled(&hostname, Style::default().fg(RatatuiColor::Black)),
+        ]),
+        Line::from(vec![
+            Span::styled("OS: ", Style::default().fg(RatatuiColor::Black)),
+            Span::styled(&os_info, Style::default().fg(RatatuiColor::Black)),
+        ]),
+        Line::from(vec![
+            Span::styled("Kernel: ", Style::default().fg(RatatuiColor::Black)),
+            Span::styled(&kernel_version, Style::default().fg(RatatuiColor::Black)),
+        ]),
+        Line::from(vec![
+            Span::styled("Boot Time: ", Style::default().fg(RatatuiColor::Black)),
+            Span::styled(&boot_time, Style::default().fg(RatatuiColor::Black)),
+        ]),
+        Line::from(vec![
+            Span::styled("Last Reboot: ", Style::default().fg(RatatuiColor::Black)),
+            Span::styled(&last_reboot, Style::default().fg(RatatuiColor::Black)),
+        ]),
+        Line::from(vec![
+            Span::styled("Uptime: ", Style::default().fg(RatatuiColor::Black)),
+            Span::styled(&uptime, Style::default().fg(RatatuiColor::Black)),
+        ]),
     ];
-    let sys_overview_widget = Paragraph::new(sys_overview).block(Block::default().borders(Borders::ALL)).style(Style::default());
+    let sys_overview_widget = Paragraph::new(sys_overview)
+        .block(Block::default().borders(Borders::ALL))
+        .style(Style::default());
     frame.render_widget(sys_overview_widget, chunks[0]);
 
     // CPU Summary
@@ -425,62 +483,190 @@ pub fn render_overview_tab(frame: &mut ratatui::Frame, area: Rect, graph_data: &
     let load_avg = get_load_average();
     let total_cpu: f32 = graph_data.get_cpu_history().iter().sum();
     let cpu_summary = vec![
-        Line::from(vec![Span::styled("CPU Summary", Style::default().fg(RatatuiColor::Black).add_modifier(Modifier::BOLD))]),
-        Line::from(vec![Span::styled("Model: ", Style::default().fg(RatatuiColor::Black)), Span::styled(&cpu_model, Style::default().fg(RatatuiColor::Black))]),
-        Line::from(vec![Span::styled("Cores: ", Style::default().fg(RatatuiColor::Black)), Span::styled(format!("{} (Physical)", get_cpu_count()), Style::default().fg(RatatuiColor::Black))]),
-        Line::from(vec![Span::styled("Load Avg: ", Style::default().fg(RatatuiColor::Black)), Span::styled(format!("{:.2}, {:.2}, {:.2}", load_avg.0, load_avg.1, load_avg.2), Style::default().fg(RatatuiColor::Black))]),
-        Line::from(vec![Span::styled("Total CPU Usage: ", Style::default().fg(RatatuiColor::Black)), Span::styled(format!("{:.1}%", total_cpu), get_usage_style(total_cpu as f64))]),
+        Line::from(vec![Span::styled(
+            "CPU Summary",
+            Style::default()
+                .fg(RatatuiColor::Black)
+                .add_modifier(Modifier::BOLD),
+        )]),
+        Line::from(vec![
+            Span::styled("Model: ", Style::default().fg(RatatuiColor::Black)),
+            Span::styled(&cpu_model, Style::default().fg(RatatuiColor::Black)),
+        ]),
+        Line::from(vec![
+            Span::styled("Cores: ", Style::default().fg(RatatuiColor::Black)),
+            Span::styled(
+                format!("{} (Physical)", get_cpu_count()),
+                Style::default().fg(RatatuiColor::Black),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("Load Avg: ", Style::default().fg(RatatuiColor::Black)),
+            Span::styled(
+                format!("{:.2}, {:.2}, {:.2}", load_avg.0, load_avg.1, load_avg.2),
+                Style::default().fg(RatatuiColor::Black),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled(
+                "Total CPU Usage: ",
+                Style::default().fg(RatatuiColor::Black),
+            ),
+            Span::styled(
+                format!("{:.1}%", total_cpu),
+                get_usage_style(total_cpu as f64),
+            ),
+        ]),
     ];
-    let cpu_summary_widget = Paragraph::new(cpu_summary).block(Block::default().borders(Borders::ALL)).style(Style::default());
+    let cpu_summary_widget = Paragraph::new(cpu_summary)
+        .block(Block::default().borders(Borders::ALL))
+        .style(Style::default());
     frame.render_widget(cpu_summary_widget, chunks[1]);
 
     // Memory Summary
     let (mem_total, mem_used, mem_free, mem_cached, _mem_available) = get_memory_info();
     let mem_summary = vec![
-        Line::from(vec![Span::styled("Memory Summary", Style::default().fg(RatatuiColor::Black).add_modifier(Modifier::BOLD))]),
-        Line::from(vec![Span::styled("Total: ", Style::default().fg(RatatuiColor::Black)), Span::styled(format!("{} MB", mem_total / 1024), Style::default().fg(RatatuiColor::Black))]),
-        Line::from(vec![Span::styled("Used: ", Style::default().fg(RatatuiColor::Black)), Span::styled(format!("{} MB", mem_used / 1024), get_usage_style((mem_used as f64 / mem_total as f64) * 100.0))]),
-        Line::from(vec![Span::styled("Free: ", Style::default().fg(RatatuiColor::Black)), Span::styled(format!("{} MB", mem_free / 1024), Style::default().fg(RatatuiColor::Black))]),
-        Line::from(vec![Span::styled("Cached+Buffers: ", Style::default().fg(RatatuiColor::Black)), Span::styled(format!("{} MB", mem_cached / 1024), Style::default().fg(RatatuiColor::Black))]),
+        Line::from(vec![Span::styled(
+            "Memory Summary",
+            Style::default()
+                .fg(RatatuiColor::Black)
+                .add_modifier(Modifier::BOLD),
+        )]),
+        Line::from(vec![
+            Span::styled("Total: ", Style::default().fg(RatatuiColor::Black)),
+            Span::styled(
+                format!("{} MB", mem_total / 1024),
+                Style::default().fg(RatatuiColor::Black),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("Used: ", Style::default().fg(RatatuiColor::Black)),
+            Span::styled(
+                format!("{} MB", mem_used / 1024),
+                get_usage_style((mem_used as f64 / mem_total as f64) * 100.0),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("Free: ", Style::default().fg(RatatuiColor::Black)),
+            Span::styled(
+                format!("{} MB", mem_free / 1024),
+                Style::default().fg(RatatuiColor::Black),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("Cached+Buffers: ", Style::default().fg(RatatuiColor::Black)),
+            Span::styled(
+                format!("{} MB", mem_cached / 1024),
+                Style::default().fg(RatatuiColor::Black),
+            ),
+        ]),
     ];
-    let mem_summary_widget = Paragraph::new(mem_summary).block(Block::default().borders(Borders::ALL)).style(Style::default());
+    let mem_summary_widget = Paragraph::new(mem_summary)
+        .block(Block::default().borders(Borders::ALL))
+        .style(Style::default());
     frame.render_widget(mem_summary_widget, chunks[2]);
 
     // Disk Summary
     let (disk_total, disk_used) = get_disk_stats();
-    let disk_total_gb = disk_total as f64 / 1024.0 ;
-    let disk_used_gb = disk_used as f64 / 1024.0 ;
+    let disk_total_gb = disk_total as f64 / 1024.0;
+    let disk_used_gb = disk_used as f64 / 1024.0;
     let disk_free_gb = (disk_total.saturating_sub(disk_used)) as f64 / 1024.0;
     let disk_summary = vec![
-        Line::from(vec![Span::styled("Disk Summary", Style::default().fg(RatatuiColor::Black).add_modifier(Modifier::BOLD))]),
-        Line::from(vec![Span::styled("Total (GB): ", Style::default().fg(RatatuiColor::Black)), Span::styled(format!("{:.1} GB", disk_total_gb), Style::default().fg(RatatuiColor::Black))]),
-        Line::from(vec![Span::styled("Used (GB): ", Style::default().fg(RatatuiColor::Black)), Span::styled(format!("{:.1} GB", disk_used_gb), get_usage_style((disk_used as f64 / disk_total.max(1) as f64) * 100.0))]),
-        Line::from(vec![Span::styled("Free (GB): ", Style::default().fg(RatatuiColor::Black)), Span::styled(format!("{:.1} GB", disk_free_gb), Style::default().fg(RatatuiColor::Black))]),
+        Line::from(vec![Span::styled(
+            "Disk Summary",
+            Style::default()
+                .fg(RatatuiColor::Black)
+                .add_modifier(Modifier::BOLD),
+        )]),
+        Line::from(vec![
+            Span::styled("Total (GB): ", Style::default().fg(RatatuiColor::Black)),
+            Span::styled(
+                format!("{:.1} GB", disk_total_gb),
+                Style::default().fg(RatatuiColor::Black),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("Used (GB): ", Style::default().fg(RatatuiColor::Black)),
+            Span::styled(
+                format!("{:.1} GB", disk_used_gb),
+                get_usage_style((disk_used as f64 / disk_total.max(1) as f64) * 100.0),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("Free (GB): ", Style::default().fg(RatatuiColor::Black)),
+            Span::styled(
+                format!("{:.1} GB", disk_free_gb),
+                Style::default().fg(RatatuiColor::Black),
+            ),
+        ]),
     ];
-    let disk_summary_widget = Paragraph::new(disk_summary).block(Block::default().borders(Borders::ALL)).style(Style::default());
+    let disk_summary_widget = Paragraph::new(disk_summary)
+        .block(Block::default().borders(Borders::ALL))
+        .style(Style::default());
     frame.render_widget(disk_summary_widget, chunks[3]);
 
     // Process States
     let state_counts = get_process_state_counts_from_status(process_list);
     let process_states = vec![
-        Line::from(vec![Span::styled("Process States", Style::default().fg(RatatuiColor::Black).add_modifier(Modifier::BOLD))]),
+        Line::from(vec![Span::styled(
+            "Process States",
+            Style::default()
+                .fg(RatatuiColor::Black)
+                .add_modifier(Modifier::BOLD),
+        )]),
         Line::from(vec![
-            Span::styled("Running: ", Style::default().fg(RatatuiColor::Black)), Span::styled(state_counts.get("Running").unwrap_or(&0).to_string(), Style::default().fg(RatatuiColor::Black)),
+            Span::styled("Running: ", Style::default().fg(RatatuiColor::Black)),
+            Span::styled(
+                state_counts.get("Running").unwrap_or(&0).to_string(),
+                Style::default().fg(RatatuiColor::Black),
+            ),
             Span::raw(" | "),
-            Span::styled("Runnable: ", Style::default().fg(RatatuiColor::Black)), Span::styled(state_counts.get("Runnable").unwrap_or(&0).to_string(), Style::default().fg(RatatuiColor::Black)),
+            Span::styled("Runnable: ", Style::default().fg(RatatuiColor::Black)),
+            Span::styled(
+                state_counts.get("Runnable").unwrap_or(&0).to_string(),
+                Style::default().fg(RatatuiColor::Black),
+            ),
             Span::raw(" | "),
-            Span::styled("Sleeping: ", Style::default().fg(RatatuiColor::Black)), Span::styled(state_counts.get("Sleeping").unwrap_or(&0).to_string(), Style::default().fg(RatatuiColor::Black)),
+            Span::styled("Sleeping: ", Style::default().fg(RatatuiColor::Black)),
+            Span::styled(
+                state_counts.get("Sleeping").unwrap_or(&0).to_string(),
+                Style::default().fg(RatatuiColor::Black),
+            ),
             Span::raw(" | "),
-            Span::styled("Uninterruptible: ", Style::default().fg(RatatuiColor::Black)), Span::styled(state_counts.get("Uninterruptible").unwrap_or(&0).to_string(), Style::default().fg(RatatuiColor::Black)),
+            Span::styled(
+                "Uninterruptible: ",
+                Style::default().fg(RatatuiColor::Black),
+            ),
+            Span::styled(
+                state_counts
+                    .get("Uninterruptible")
+                    .unwrap_or(&0)
+                    .to_string(),
+                Style::default().fg(RatatuiColor::Black),
+            ),
             Span::raw(" | "),
-            Span::styled("Stopped: ", Style::default().fg(RatatuiColor::Black)), Span::styled(state_counts.get("Stopped").unwrap_or(&0).to_string(), Style::default().fg(RatatuiColor::Black)),
+            Span::styled("Stopped: ", Style::default().fg(RatatuiColor::Black)),
+            Span::styled(
+                state_counts.get("Stopped").unwrap_or(&0).to_string(),
+                Style::default().fg(RatatuiColor::Black),
+            ),
             Span::raw(" | "),
-            Span::styled("Zombie: ", Style::default().fg(RatatuiColor::Black)), Span::styled(state_counts.get("Zombie").unwrap_or(&0).to_string(), Style::default().fg(RatatuiColor::Black)),
+            Span::styled("Zombie: ", Style::default().fg(RatatuiColor::Black)),
+            Span::styled(
+                state_counts.get("Zombie").unwrap_or(&0).to_string(),
+                Style::default().fg(RatatuiColor::Black),
+            ),
             Span::raw(" | "),
-            Span::styled("Total: ", Style::default().fg(RatatuiColor::Black)), Span::styled(process_list.len().to_string(), Style::default().fg(RatatuiColor::Black)),
+            Span::styled("Total: ", Style::default().fg(RatatuiColor::Black)),
+            Span::styled(
+                process_list.len().to_string(),
+                Style::default().fg(RatatuiColor::Black),
+            ),
         ]),
     ];
-    let process_states_widget = Paragraph::new(process_states).block(Block::default().borders(Borders::ALL)).style(Style::default());
+    let process_states_widget = Paragraph::new(process_states)
+        .block(Block::default().borders(Borders::ALL))
+        .style(Style::default());
     frame.render_widget(process_states_widget, chunks[4]);
 }
 
@@ -498,33 +684,119 @@ pub fn render_cpu_tab(frame: &mut ratatui::Frame, area: Rect, graph_data: &Graph
 
     // Compose lines for the CPU Info tab
     let mut lines = vec![
-        Line::from(vec![Span::styled("CPU Information", Style::default().fg(RatatuiColor::Black).add_modifier(Modifier::BOLD))]),
-        Line::from(vec![Span::styled("Model: ", Style::default().fg(RatatuiColor::Black)), Span::styled(model, Style::default().fg(RatatuiColor::Black))]),
-        Line::from(vec![Span::styled("Frequency: ", Style::default().fg(RatatuiColor::Black)), Span::styled(freq, Style::default().fg(RatatuiColor::Black))]),
-        Line::from(vec![Span::styled("Cache: ", Style::default().fg(RatatuiColor::Black)), Span::styled(cache, Style::default().fg(RatatuiColor::Black))]),
-        Line::from(vec![Span::styled("Cores: ", Style::default().fg(RatatuiColor::Black)), Span::styled(format!("{}", cpu_count), Style::default().fg(RatatuiColor::Black))]),
+        Line::from(vec![Span::styled(
+            "CPU Information",
+            Style::default()
+                .fg(RatatuiColor::Black)
+                .add_modifier(Modifier::BOLD),
+        )]),
+        Line::from(vec![
+            Span::styled("Model: ", Style::default().fg(RatatuiColor::Black)),
+            Span::styled(model, Style::default().fg(RatatuiColor::Black)),
+        ]),
+        Line::from(vec![
+            Span::styled("Frequency: ", Style::default().fg(RatatuiColor::Black)),
+            Span::styled(freq, Style::default().fg(RatatuiColor::Black)),
+        ]),
+        Line::from(vec![
+            Span::styled("Cache: ", Style::default().fg(RatatuiColor::Black)),
+            Span::styled(cache, Style::default().fg(RatatuiColor::Black)),
+        ]),
+        Line::from(vec![
+            Span::styled("Cores: ", Style::default().fg(RatatuiColor::Black)),
+            Span::styled(
+                format!("{}", cpu_count),
+                Style::default().fg(RatatuiColor::Black),
+            ),
+        ]),
     ];
     if let Some(temp) = temp {
-        lines.push(Line::from(vec![Span::styled("Temperature: ", Style::default().fg(RatatuiColor::Black)), Span::styled(format!("{:.1} °C", temp), Style::default().fg(RatatuiColor::Black))]));
+        lines.push(Line::from(vec![
+            Span::styled("Temperature: ", Style::default().fg(RatatuiColor::Black)),
+            Span::styled(
+                format!("{:.1} °C", temp),
+                Style::default().fg(RatatuiColor::Black),
+            ),
+        ]));
     }
     // Add total CPU usage line using /proc/stat aggregate
     let total_cpu = get_total_cpu_usage();
-    lines.push(Line::from(vec![Span::styled("Total CPU Usage: ", Style::default().fg(RatatuiColor::Black)), Span::styled(format!("{:.1}%", total_cpu), get_usage_style(total_cpu as f64))]));
-    lines.push(Line::from(vec![Span::styled("Context Switches: ", Style::default().fg(RatatuiColor::Black)), Span::styled(format!("{}", ctxt), Style::default().fg(RatatuiColor::Black))]));
-    lines.push(Line::from(vec![Span::styled("Interrupts: ", Style::default().fg(RatatuiColor::Black)), Span::styled(format!("{}", interrupts), Style::default().fg(RatatuiColor::Black))]));
-    lines.push(Line::from(vec![Span::styled("Running Procs: ", Style::default().fg(RatatuiColor::Black)), Span::styled(format!("{}", procs_running), Style::default().fg(RatatuiColor::Black)), Span::raw(" | "), Span::styled("Blocked: ", Style::default().fg(RatatuiColor::Black)), Span::styled(format!("{}", procs_blocked), Style::default().fg(RatatuiColor::Black))]));
-    lines.push(Line::from(vec![Span::styled("Load Avg: ", Style::default().fg(RatatuiColor::Black)), Span::styled(format!("{:.2}, {:.2}, {:.2}", load_avg.0, load_avg.1, load_avg.2), Style::default().fg(RatatuiColor::Black))]));
+    lines.push(Line::from(vec![
+        Span::styled(
+            "Total CPU Usage: ",
+            Style::default().fg(RatatuiColor::Black),
+        ),
+        Span::styled(
+            format!("{:.1}%", total_cpu),
+            get_usage_style(total_cpu as f64),
+        ),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled(
+            "Context Switches: ",
+            Style::default().fg(RatatuiColor::Black),
+        ),
+        Span::styled(
+            format!("{}", ctxt),
+            Style::default().fg(RatatuiColor::Black),
+        ),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("Interrupts: ", Style::default().fg(RatatuiColor::Black)),
+        Span::styled(
+            format!("{}", interrupts),
+            Style::default().fg(RatatuiColor::Black),
+        ),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("Running Procs: ", Style::default().fg(RatatuiColor::Black)),
+        Span::styled(
+            format!("{}", procs_running),
+            Style::default().fg(RatatuiColor::Black),
+        ),
+        Span::raw(" | "),
+        Span::styled("Blocked: ", Style::default().fg(RatatuiColor::Black)),
+        Span::styled(
+            format!("{}", procs_blocked),
+            Style::default().fg(RatatuiColor::Black),
+        ),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("Load Avg: ", Style::default().fg(RatatuiColor::Black)),
+        Span::styled(
+            format!("{:.2}, {:.2}, {:.2}", load_avg.0, load_avg.1, load_avg.2),
+            Style::default().fg(RatatuiColor::Black),
+        ),
+    ]));
     lines.push(Line::from(vec![Span::styled("", Style::default())]));
-    lines.push(Line::from(vec![Span::styled("Per-Core Usage:", Style::default().fg(RatatuiColor::Black).add_modifier(Modifier::BOLD))]));
+    lines.push(Line::from(vec![Span::styled(
+        "Per-Core Usage:",
+        Style::default()
+            .fg(RatatuiColor::Black)
+            .add_modifier(Modifier::BOLD),
+    )]));
     for (i, usage) in per_core_usages.iter().enumerate() {
-        let freq_str = per_core_freqs.get(i).map(|f| format!(" @ {:.0} MHz", f)).unwrap_or_default();
+        let freq_str = per_core_freqs
+            .get(i)
+            .map(|f| format!(" @ {:.0} MHz", f))
+            .unwrap_or_default();
         lines.push(Line::from(vec![
-            Span::styled(format!("Core {:2}: ", i), Style::default().fg(RatatuiColor::Black)),
+            Span::styled(
+                format!("Core {:2}: ", i),
+                Style::default().fg(RatatuiColor::Black),
+            ),
             Span::styled(format!("{:5.1}%", usage), get_usage_style(*usage as f64)),
             Span::styled(freq_str, Style::default().fg(RatatuiColor::Black)),
         ]));
     }
-    let widget = Paragraph::new(lines).block(Block::default().borders(Borders::ALL).title("CPU Info").style(Style::default().fg(RatatuiColor::Black))).wrap(ratatui::widgets::Wrap { trim: false });
+    let widget = Paragraph::new(lines)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("CPU Info")
+                .style(Style::default().fg(RatatuiColor::Black)),
+        )
+        .wrap(ratatui::widgets::Wrap { trim: false });
     frame.render_widget(widget, area);
 }
 
@@ -537,9 +809,19 @@ pub fn render_memory_tab(frame: &mut ratatui::Frame, area: Rect) {
     if let Ok(meminfo) = std::fs::read_to_string("/proc/meminfo") {
         for line in meminfo.lines() {
             if line.starts_with("MemAvailable:") {
-                available = line.split_whitespace().nth(1).unwrap_or("0").parse().unwrap_or(0);
+                available = line
+                    .split_whitespace()
+                    .nth(1)
+                    .unwrap_or("0")
+                    .parse()
+                    .unwrap_or(0);
             } else if line.starts_with("Buffers:") {
-                buffers = line.split_whitespace().nth(1).unwrap_or("0").parse().unwrap_or(0);
+                buffers = line
+                    .split_whitespace()
+                    .nth(1)
+                    .unwrap_or("0")
+                    .parse()
+                    .unwrap_or(0);
             }
         }
     }
@@ -550,25 +832,107 @@ pub fn render_memory_tab(frame: &mut ratatui::Frame, area: Rect) {
     let mem_available_mb = available / 1024;
     let mem_buffers_mb = buffers / 1024;
     let swap_free = swap_total.saturating_sub(swap_used);
-    let mem_usage_percent = if mem_total > 0 { (mem_used as f64 / mem_total as f64) * 100.0 } else { 0.0 };
-    let swap_usage_percent = if swap_total > 0 { (swap_used as f64 / swap_total as f64) * 100.0 } else { 0.0 };
+    let mem_usage_percent = if mem_total > 0 {
+        (mem_used as f64 / mem_total as f64) * 100.0
+    } else {
+        0.0
+    };
+    let swap_usage_percent = if swap_total > 0 {
+        (swap_used as f64 / swap_total as f64) * 100.0
+    } else {
+        0.0
+    };
     let lines = vec![
-        Line::from(vec![Span::styled("Memory Information", Style::default().fg(RatatuiColor::Black).add_modifier(Modifier::BOLD))]),
+        Line::from(vec![Span::styled(
+            "Memory Information",
+            Style::default()
+                .fg(RatatuiColor::Black)
+                .add_modifier(Modifier::BOLD),
+        )]),
         Line::from(vec![Span::styled("", Style::default())]),
-        Line::from(vec![Span::styled("-- RAM --", Style::default().fg(RatatuiColor::Black).add_modifier(Modifier::BOLD))]),
-        Line::from(vec![Span::styled("Total: ", Style::default().fg(RatatuiColor::Black)), Span::styled(format!("{} MB", mem_total_mb), Style::default().fg(RatatuiColor::Black))]),
-        Line::from(vec![Span::styled("Used: ", Style::default().fg(RatatuiColor::Black)), Span::styled(format!("{} MB ({:.1}%)", mem_used_mb, mem_usage_percent), get_usage_style(mem_usage_percent))]),
-        Line::from(vec![Span::styled("Free: ", Style::default().fg(RatatuiColor::Black)), Span::styled(format!("{} MB", mem_free_mb), Style::default().fg(RatatuiColor::Black))]),
-        Line::from(vec![Span::styled("Available: ", Style::default().fg(RatatuiColor::Black)), Span::styled(format!("{} MB", mem_available_mb), Style::default().fg(RatatuiColor::Black))]),
-        Line::from(vec![Span::styled("Cached: ", Style::default().fg(RatatuiColor::Black)), Span::styled(format!("{} MB", mem_cached_mb), Style::default().fg(RatatuiColor::Black))]),
-        Line::from(vec![Span::styled("Buffers: ", Style::default().fg(RatatuiColor::Black)), Span::styled(format!("{} MB", mem_buffers_mb), Style::default().fg(RatatuiColor::Black))]),
+        Line::from(vec![Span::styled(
+            "-- RAM --",
+            Style::default()
+                .fg(RatatuiColor::Black)
+                .add_modifier(Modifier::BOLD),
+        )]),
+        Line::from(vec![
+            Span::styled("Total: ", Style::default().fg(RatatuiColor::Black)),
+            Span::styled(
+                format!("{} MB", mem_total_mb),
+                Style::default().fg(RatatuiColor::Black),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("Used: ", Style::default().fg(RatatuiColor::Black)),
+            Span::styled(
+                format!("{} MB ({:.1}%)", mem_used_mb, mem_usage_percent),
+                get_usage_style(mem_usage_percent),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("Free: ", Style::default().fg(RatatuiColor::Black)),
+            Span::styled(
+                format!("{} MB", mem_free_mb),
+                Style::default().fg(RatatuiColor::Black),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("Available: ", Style::default().fg(RatatuiColor::Black)),
+            Span::styled(
+                format!("{} MB", mem_available_mb),
+                Style::default().fg(RatatuiColor::Black),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("Cached: ", Style::default().fg(RatatuiColor::Black)),
+            Span::styled(
+                format!("{} MB", mem_cached_mb),
+                Style::default().fg(RatatuiColor::Black),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("Buffers: ", Style::default().fg(RatatuiColor::Black)),
+            Span::styled(
+                format!("{} MB", mem_buffers_mb),
+                Style::default().fg(RatatuiColor::Black),
+            ),
+        ]),
         Line::from(vec![Span::styled("", Style::default())]),
-        Line::from(vec![Span::styled("-- SWAP --", Style::default().fg(RatatuiColor::Black).add_modifier(Modifier::BOLD))]),
-        Line::from(vec![Span::styled("Total: ", Style::default().fg(RatatuiColor::Black)), Span::styled(format!("{} MB", swap_total), Style::default().fg(RatatuiColor::Black))]),
-        Line::from(vec![Span::styled("Used: ", Style::default().fg(RatatuiColor::Black)), Span::styled(format!("{} MB ({:.1}%)", swap_used, swap_usage_percent), get_usage_style(swap_usage_percent))]),
-        Line::from(vec![Span::styled("Free: ", Style::default().fg(RatatuiColor::Black)), Span::styled(format!("{} MB", swap_free), Style::default().fg(RatatuiColor::Black))]),
+        Line::from(vec![Span::styled(
+            "-- SWAP --",
+            Style::default()
+                .fg(RatatuiColor::Black)
+                .add_modifier(Modifier::BOLD),
+        )]),
+        Line::from(vec![
+            Span::styled("Total: ", Style::default().fg(RatatuiColor::Black)),
+            Span::styled(
+                format!("{} MB", swap_total),
+                Style::default().fg(RatatuiColor::Black),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("Used: ", Style::default().fg(RatatuiColor::Black)),
+            Span::styled(
+                format!("{} MB ({:.1}%)", swap_used, swap_usage_percent),
+                get_usage_style(swap_usage_percent),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("Free: ", Style::default().fg(RatatuiColor::Black)),
+            Span::styled(
+                format!("{} MB", swap_free),
+                Style::default().fg(RatatuiColor::Black),
+            ),
+        ]),
     ];
-    let widget = Paragraph::new(lines).block(Block::default().borders(Borders::ALL).title("Memory Info").style(Style::default().fg(RatatuiColor::Black)));
+    let widget = Paragraph::new(lines).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title("Memory Info")
+            .style(Style::default().fg(RatatuiColor::Black)),
+    );
     frame.render_widget(widget, area);
 }
 
@@ -578,18 +942,63 @@ pub fn render_disk_tab(frame: &mut ratatui::Frame, area: Rect) {
     // Try to get disk read/write speeds and storage type
     let (read_speed, write_speed) = get_disk_rw_speed();
     let storage_type = get_storage_type();
-    let read_speed_str = if read_speed > 0.0 { format!("{:.1} MB/s", read_speed) } else { "Unavailable".to_string() };
-    let write_speed_str = if write_speed > 0.0 { format!("{:.1} MB/s", write_speed) } else { "Unavailable".to_string() };
+    let read_speed_str = if read_speed > 0.0 {
+        format!("{:.1} MB/s", read_speed)
+    } else {
+        "Unavailable".to_string()
+    };
+    let write_speed_str = if write_speed > 0.0 {
+        format!("{:.1} MB/s", write_speed)
+    } else {
+        "Unavailable".to_string()
+    };
     let lines = vec![
-        Line::from(vec![Span::styled("Disk Information", Style::default().fg(RatatuiColor::Black).add_modifier(Modifier::BOLD))]),
-        Line::from(vec![Span::styled("Total: ", Style::default().fg(RatatuiColor::Black)), Span::styled(format!("{} MB", disk_total), Style::default().fg(RatatuiColor::Black))]),
-        Line::from(vec![Span::styled("Used: ", Style::default().fg(RatatuiColor::Black)), Span::styled(format!("{} MB", disk_used), get_usage_style((disk_used as f64 / disk_total.max(1) as f64) * 100.0))]),
-        Line::from(vec![Span::styled("Free: ", Style::default().fg(RatatuiColor::Black)), Span::styled(format!("{} MB", disk_free), Style::default().fg(RatatuiColor::Black))]),
-        Line::from(vec![Span::styled("Read Speed: ", Style::default().fg(RatatuiColor::Black)), Span::styled(read_speed_str, Style::default().fg(RatatuiColor::Black))]),
-        Line::from(vec![Span::styled("Write Speed: ", Style::default().fg(RatatuiColor::Black)), Span::styled(write_speed_str, Style::default().fg(RatatuiColor::Black))]),
-        Line::from(vec![Span::styled("Storage Type: ", Style::default().fg(RatatuiColor::Black)), Span::styled(storage_type, Style::default().fg(RatatuiColor::Black))]),
+        Line::from(vec![Span::styled(
+            "Disk Information",
+            Style::default()
+                .fg(RatatuiColor::Black)
+                .add_modifier(Modifier::BOLD),
+        )]),
+        Line::from(vec![
+            Span::styled("Total: ", Style::default().fg(RatatuiColor::Black)),
+            Span::styled(
+                format!("{} MB", disk_total),
+                Style::default().fg(RatatuiColor::Black),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("Used: ", Style::default().fg(RatatuiColor::Black)),
+            Span::styled(
+                format!("{} MB", disk_used),
+                get_usage_style((disk_used as f64 / disk_total.max(1) as f64) * 100.0),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("Free: ", Style::default().fg(RatatuiColor::Black)),
+            Span::styled(
+                format!("{} MB", disk_free),
+                Style::default().fg(RatatuiColor::Black),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("Read Speed: ", Style::default().fg(RatatuiColor::Black)),
+            Span::styled(read_speed_str, Style::default().fg(RatatuiColor::Black)),
+        ]),
+        Line::from(vec![
+            Span::styled("Write Speed: ", Style::default().fg(RatatuiColor::Black)),
+            Span::styled(write_speed_str, Style::default().fg(RatatuiColor::Black)),
+        ]),
+        Line::from(vec![
+            Span::styled("Storage Type: ", Style::default().fg(RatatuiColor::Black)),
+            Span::styled(storage_type, Style::default().fg(RatatuiColor::Black)),
+        ]),
     ];
-    let widget = Paragraph::new(lines).block(Block::default().borders(Borders::ALL).title("Disk Info").style(Style::default().fg(RatatuiColor::Black)));
+    let widget = Paragraph::new(lines).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title("Disk Info")
+            .style(Style::default().fg(RatatuiColor::Black)),
+    );
     frame.render_widget(widget, area);
 }
 
@@ -597,36 +1006,104 @@ pub fn render_processes_tab(frame: &mut ratatui::Frame, area: Rect, process_list
     let total_processes = process_list.len();
     let state_counts = get_process_state_counts_from_status(process_list);
     let mut lines = vec![
-        Line::from(vec![Span::styled("Processes Overview", Style::default().fg(RatatuiColor::Black).add_modifier(Modifier::BOLD))]),
-        Line::from(vec![Span::styled("Total Processes: ", Style::default().fg(RatatuiColor::Black)), Span::styled(total_processes.to_string(), Style::default().fg(RatatuiColor::Black))]),
-        Line::from(vec![Span::styled("States: ", Style::default().fg(RatatuiColor::Black)),
-            Span::styled(format!("Running: {}  ", state_counts.get("Running").unwrap_or(&0)), Style::default().fg(RatatuiColor::Green)),
-            Span::styled(format!("Sleeping: {}  ", state_counts.get("Sleeping").unwrap_or(&0)), Style::default().fg(RatatuiColor::Blue)),
-            Span::styled(format!("Stopped: {}  ", state_counts.get("Stopped").unwrap_or(&0)), Style::default().fg(RatatuiColor::Yellow)),
-            Span::styled(format!("Zombie: {}", state_counts.get("Zombie").unwrap_or(&0)), Style::default().fg(RatatuiColor::Red)),
+        Line::from(vec![Span::styled(
+            "Processes Overview",
+            Style::default()
+                .fg(RatatuiColor::Black)
+                .add_modifier(Modifier::BOLD),
+        )]),
+        Line::from(vec![
+            Span::styled(
+                "Total Processes: ",
+                Style::default().fg(RatatuiColor::Black),
+            ),
+            Span::styled(
+                total_processes.to_string(),
+                Style::default().fg(RatatuiColor::Black),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("States: ", Style::default().fg(RatatuiColor::Black)),
+            Span::styled(
+                format!("Running: {}  ", state_counts.get("Running").unwrap_or(&0)),
+                Style::default().fg(RatatuiColor::Green),
+            ),
+            Span::styled(
+                format!("Sleeping: {}  ", state_counts.get("Sleeping").unwrap_or(&0)),
+                Style::default().fg(RatatuiColor::Blue),
+            ),
+            Span::styled(
+                format!("Stopped: {}  ", state_counts.get("Stopped").unwrap_or(&0)),
+                Style::default().fg(RatatuiColor::Yellow),
+            ),
+            Span::styled(
+                format!("Zombie: {}", state_counts.get("Zombie").unwrap_or(&0)),
+                Style::default().fg(RatatuiColor::Red),
+            ),
         ]),
         Line::from(vec![Span::styled("", Style::default())]),
-        Line::from(vec![Span::styled("Top Processes by CPU", Style::default().fg(RatatuiColor::Black).add_modifier(Modifier::BOLD))]),
+        Line::from(vec![Span::styled(
+            "Top Processes by CPU",
+            Style::default()
+                .fg(RatatuiColor::Black)
+                .add_modifier(Modifier::BOLD),
+        )]),
     ];
-    let mut sorted_by_cpu = process_list.iter().enumerate().collect::<Vec<(usize, &ProcessInfo)>>();
-    sorted_by_cpu.sort_by(|a, b| b.1.cpu_usage.partial_cmp(&a.1.cpu_usage).unwrap_or(std::cmp::Ordering::Equal));
+    let mut sorted_by_cpu = process_list
+        .iter()
+        .enumerate()
+        .collect::<Vec<(usize, &ProcessInfo)>>();
+    sorted_by_cpu.sort_by(|a, b| {
+        b.1.cpu_usage
+            .partial_cmp(&a.1.cpu_usage)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     for &(i, proc) in &sorted_by_cpu.iter().take(5).collect::<Vec<_>>() {
         lines.push(Line::from(vec![Span::styled(
-            format!("{}. {} (PID {}) - CPU: {:.2}%", i + 1, proc.name, proc.pid, proc.cpu_usage),
-            Style::default().fg(RatatuiColor::Yellow)
+            format!(
+                "{}. {} (PID {}) - CPU: {:.2}%",
+                i + 1,
+                proc.name,
+                proc.pid,
+                proc.cpu_usage
+            ),
+            Style::default().fg(RatatuiColor::Yellow),
         )]));
     }
     lines.push(Line::from(vec![Span::styled("", Style::default())]));
-    lines.push(Line::from(vec![Span::styled("Top Processes by Memory", Style::default().fg(RatatuiColor::Black).add_modifier(Modifier::BOLD))]));
-    let mut sorted_by_mem = process_list.iter().enumerate().collect::<Vec<(usize, &ProcessInfo)>>();
-    sorted_by_mem.sort_by(|a, b| b.1.memory_usage.partial_cmp(&a.1.memory_usage).unwrap_or(std::cmp::Ordering::Equal));
+    lines.push(Line::from(vec![Span::styled(
+        "Top Processes by Memory",
+        Style::default()
+            .fg(RatatuiColor::Black)
+            .add_modifier(Modifier::BOLD),
+    )]));
+    let mut sorted_by_mem = process_list
+        .iter()
+        .enumerate()
+        .collect::<Vec<(usize, &ProcessInfo)>>();
+    sorted_by_mem.sort_by(|a, b| {
+        b.1.memory_usage
+            .partial_cmp(&a.1.memory_usage)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     for &(i, proc) in &sorted_by_mem.iter().take(5).collect::<Vec<_>>() {
         lines.push(Line::from(vec![Span::styled(
-            format!("{}. {} (PID {}) - MEM: {:.2} MB", i + 1, proc.name, proc.pid, proc.memory_usage as f64 / 1024.0 / 1024.0),
-            Style::default().fg(RatatuiColor::Blue)
+            format!(
+                "{}. {} (PID {}) - MEM: {:.2} MB",
+                i + 1,
+                proc.name,
+                proc.pid,
+                proc.memory_usage as f64 / 1024.0 / 1024.0
+            ),
+            Style::default().fg(RatatuiColor::Blue),
         )]));
     }
-    let widget = Paragraph::new(lines).block(Block::default().borders(Borders::ALL).title("Processes Info").style(Style::default().fg(RatatuiColor::Black)));
+    let widget = Paragraph::new(lines).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title("Processes Info")
+            .style(Style::default().fg(RatatuiColor::Black)),
+    );
     frame.render_widget(widget, area);
 }
 
@@ -637,35 +1114,132 @@ pub fn render_advanced_tab(frame: &mut ratatui::Frame, area: Rect, _graph_data: 
     let cpu_temp = get_cpu_temp();
     let per_core_freqs = get_per_core_freq();
     let mut lines = vec![
-        Line::from(vec![Span::styled("Advanced System Stats", Style::default().fg(RatatuiColor::Black).add_modifier(Modifier::BOLD))]),
-        Line::from(vec![Span::styled("Page Faults: ", Style::default().fg(RatatuiColor::Black)), Span::styled(format!("{}", pgfault), Style::default().fg(RatatuiColor::Black))]),
-        Line::from(vec![Span::styled("Swap In: ", Style::default().fg(RatatuiColor::Black)), Span::styled(format!("{}", pswpin), Style::default().fg(RatatuiColor::Black)), Span::raw(" | "), Span::styled("Swap Out: ", Style::default().fg(RatatuiColor::Black)), Span::styled(format!("{}", pswpout), Style::default().fg(RatatuiColor::Black))]),
-        Line::from(vec![Span::styled("IO Wait: ", Style::default().fg(RatatuiColor::Black)), Span::styled(format!("{}", iowait), Style::default().fg(RatatuiColor::Black))]),
-        Line::from(vec![Span::styled("Context Switches: ", Style::default().fg(RatatuiColor::Black)), Span::styled(format!("{}", ctxt), Style::default().fg(RatatuiColor::Black))]),
-        Line::from(vec![Span::styled("Interrupts: ", Style::default().fg(RatatuiColor::Black)), Span::styled(format!("{}", interrupts), Style::default().fg(RatatuiColor::Black))]),
-        Line::from(vec![Span::styled("Processes Since Boot Time: ", Style::default().fg(RatatuiColor::Black)), Span::styled(format!("{}", processes), Style::default().fg(RatatuiColor::Black)), Span::raw(" | "), Span::styled("Running: ", Style::default().fg(RatatuiColor::Black)), Span::styled(format!("{}", procs_running), Style::default().fg(RatatuiColor::Black)), Span::raw(" | "), Span::styled("Blocked: ", Style::default().fg(RatatuiColor::Black)), Span::styled(format!("{}", procs_blocked), Style::default().fg(RatatuiColor::Black))]),
+        Line::from(vec![Span::styled(
+            "Advanced System Stats",
+            Style::default()
+                .fg(RatatuiColor::Black)
+                .add_modifier(Modifier::BOLD),
+        )]),
+        Line::from(vec![
+            Span::styled("Page Faults: ", Style::default().fg(RatatuiColor::Black)),
+            Span::styled(
+                format!("{}", pgfault),
+                Style::default().fg(RatatuiColor::Black),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("Swap In: ", Style::default().fg(RatatuiColor::Black)),
+            Span::styled(
+                format!("{}", pswpin),
+                Style::default().fg(RatatuiColor::Black),
+            ),
+            Span::raw(" | "),
+            Span::styled("Swap Out: ", Style::default().fg(RatatuiColor::Black)),
+            Span::styled(
+                format!("{}", pswpout),
+                Style::default().fg(RatatuiColor::Black),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("IO Wait: ", Style::default().fg(RatatuiColor::Black)),
+            Span::styled(
+                format!("{}", iowait),
+                Style::default().fg(RatatuiColor::Black),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled(
+                "Context Switches: ",
+                Style::default().fg(RatatuiColor::Black),
+            ),
+            Span::styled(
+                format!("{}", ctxt),
+                Style::default().fg(RatatuiColor::Black),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("Interrupts: ", Style::default().fg(RatatuiColor::Black)),
+            Span::styled(
+                format!("{}", interrupts),
+                Style::default().fg(RatatuiColor::Black),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled(
+                "Processes Since Boot Time: ",
+                Style::default().fg(RatatuiColor::Black),
+            ),
+            Span::styled(
+                format!("{}", processes),
+                Style::default().fg(RatatuiColor::Black),
+            ),
+            Span::raw(" | "),
+            Span::styled("Running: ", Style::default().fg(RatatuiColor::Black)),
+            Span::styled(
+                format!("{}", procs_running),
+                Style::default().fg(RatatuiColor::Black),
+            ),
+            Span::raw(" | "),
+            Span::styled("Blocked: ", Style::default().fg(RatatuiColor::Black)),
+            Span::styled(
+                format!("{}", procs_blocked),
+                Style::default().fg(RatatuiColor::Black),
+            ),
+        ]),
     ];
     // Add CPU temperature if available, else show Unavailable
-    lines.push(Line::from(vec![Span::styled("CPU Temperature: ", Style::default().fg(RatatuiColor::Black)),
-        Span::styled(match cpu_temp { Some(temp) => format!("{:.1} °C", temp), None => "Unavailable".to_string() }, Style::default().fg(RatatuiColor::Red))]));
+    lines.push(Line::from(vec![
+        Span::styled(
+            "CPU Temperature: ",
+            Style::default().fg(RatatuiColor::Black),
+        ),
+        Span::styled(
+            match cpu_temp {
+                Some(temp) => format!("{:.1} °C", temp),
+                None => "Unavailable".to_string(),
+            },
+            Style::default().fg(RatatuiColor::Red),
+        ),
+    ]));
     // Add per-core frequencies or Unavailable
     if !per_core_freqs.is_empty() {
-        lines.push(Line::from(vec![Span::styled("Per-Core Frequency (MHz):", Style::default().fg(RatatuiColor::Cyan).add_modifier(Modifier::BOLD))]));
+        lines.push(Line::from(vec![Span::styled(
+            "Per-Core Frequency (MHz):",
+            Style::default()
+                .fg(RatatuiColor::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )]));
         for (i, freq) in per_core_freqs.iter().enumerate() {
-            lines.push(Line::from(vec![Span::styled(format!("Core {:2}: ", i), Style::default().fg(RatatuiColor::Black)), Span::styled(format!("{:.0} MHz", freq), Style::default().fg(RatatuiColor::Black))]));
+            lines.push(Line::from(vec![
+                Span::styled(
+                    format!("Core {:2}: ", i),
+                    Style::default().fg(RatatuiColor::Black),
+                ),
+                Span::styled(
+                    format!("{:.0} MHz", freq),
+                    Style::default().fg(RatatuiColor::Black),
+                ),
+            ]));
         }
     } else {
-        lines.push(Line::from(vec![Span::styled("Per-Core Frequency: ", Style::default().fg(RatatuiColor::Cyan)), Span::styled("Unavailable", Style::default().fg(RatatuiColor::Red))]));
+        lines.push(Line::from(vec![
+            Span::styled(
+                "Per-Core Frequency: ",
+                Style::default().fg(RatatuiColor::Cyan),
+            ),
+            Span::styled("Unavailable", Style::default().fg(RatatuiColor::Red)),
+        ]));
     }
-    let widget = Paragraph::new(lines).block(Block::default().borders(Borders::ALL).title("Advanced Info").style(Style::default().fg(RatatuiColor::Black)));
+    let widget = Paragraph::new(lines).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title("Advanced Info")
+            .style(Style::default().fg(RatatuiColor::Black)),
+    );
     frame.render_widget(widget, area);
 }
 
-fn render_cpu_graph(
-    frame: &mut ratatui::Frame,
-    area: Rect,
-    graph_data: &GraphData,
-) {
+fn render_cpu_graph(frame: &mut ratatui::Frame, area: Rect, graph_data: &GraphData) {
     let cpu_data: Vec<(f64, f64)> = graph_data
         .get_cpu_history()
         .iter()
@@ -690,27 +1264,27 @@ fn render_cpu_graph(
         .data(&cpu_data);
 
     let chart = Chart::new(vec![dataset])
-        .block(Block::default()
-            .title("CPU Usage Over Time (%)").style(Style::default().fg(RatatuiColor::Black))
-            .borders(Borders::ALL))
-        .x_axis(ratatui::widgets::Axis::default()
-            .bounds([0.0, graph_data.max_points as f64])
-            .labels(vec![]))
-        .y_axis(ratatui::widgets::Axis::default()
-            .bounds([0.0, 100.0])
-            .labels(y_labels
-                .into_iter()
-                .map(Span::from)
-                .collect()));
+        .block(
+            Block::default()
+                .title("CPU Usage Over Time (%)")
+                .style(Style::default().fg(RatatuiColor::Black))
+                .borders(Borders::ALL),
+        )
+        .x_axis(
+            ratatui::widgets::Axis::default()
+                .bounds([0.0, graph_data.max_points as f64])
+                .labels(vec![]),
+        )
+        .y_axis(
+            ratatui::widgets::Axis::default()
+                .bounds([0.0, 100.0])
+                .labels(y_labels.into_iter().map(Span::from).collect()),
+        );
 
     frame.render_widget(chart, area);
 }
 
-fn render_memory_graph(
-    frame: &mut ratatui::Frame,
-    area: Rect,
-    graph_data: &GraphData,
-) {
+fn render_memory_graph(frame: &mut ratatui::Frame, area: Rect, graph_data: &GraphData) {
     let memory_data: Vec<(f64, f64)> = graph_data
         .get_memory_history()
         .iter()
@@ -738,10 +1312,7 @@ fn render_memory_graph(
             format!("{:.0} MB", max_memory),
         ]
     } else {
-        vec![
-            format!("0 MB"),
-            format!("{:.0} MB", max_memory),
-        ]
+        vec![format!("0 MB"), format!("{:.0} MB", max_memory)]
     };
 
     let dataset = Dataset::default()
@@ -752,22 +1323,25 @@ fn render_memory_graph(
         .data(&memory_data);
 
     let chart = Chart::new(vec![dataset])
-        .block(Block::default()
-            .title("Memory Usage Over Time (MB)").style(Style::default().fg(RatatuiColor::Black))
-            .borders(Borders::ALL))
-        .x_axis(ratatui::widgets::Axis::default()
-            .bounds([0.0, graph_data.max_points as f64])
-            .labels(vec![]))
-        .y_axis(ratatui::widgets::Axis::default()
-            .bounds([0.0, max_memory])
-            .labels(y_labels
-                .into_iter()
-                .map(Span::from)
-                .collect()));
+        .block(
+            Block::default()
+                .title("Memory Usage Over Time (MB)")
+                .style(Style::default().fg(RatatuiColor::Black))
+                .borders(Borders::ALL),
+        )
+        .x_axis(
+            ratatui::widgets::Axis::default()
+                .bounds([0.0, graph_data.max_points as f64])
+                .labels(vec![]),
+        )
+        .y_axis(
+            ratatui::widgets::Axis::default()
+                .bounds([0.0, max_memory])
+                .labels(y_labels.into_iter().map(Span::from).collect()),
+        );
 
     frame.render_widget(chart, area);
 }
-
 
 // Add these helper functions at the top level
 // fn get_process_state_counts(processes: &[f32]) -> std::collections::HashMap<String, usize> {
@@ -786,12 +1360,13 @@ fn render_memory_graph(
 //     for state in ["Low", "Medium", "High", "Very High"] {
 //         states.entry(state.to_string()).or_insert(0);
 //     }
-    
+
 //     states
 // }
 //warning
 
-fn get_memory_info() -> (u64, u64, u64, u64, u64) { // Returns (total, used, free, cached, available) in KB
+fn get_memory_info() -> (u64, u64, u64, u64, u64) {
+    // Returns (total, used, free, cached, available) in KB
     let mut total = 0;
     let mut free = 0;
     let mut cached = 0;
@@ -800,15 +1375,40 @@ fn get_memory_info() -> (u64, u64, u64, u64, u64) { // Returns (total, used, fre
     if let Ok(meminfo) = std::fs::read_to_string("/proc/meminfo") {
         for line in meminfo.lines() {
             if line.starts_with("MemTotal:") {
-                total = line.split_whitespace().nth(1).unwrap_or("0").parse().unwrap_or(0);
+                total = line
+                    .split_whitespace()
+                    .nth(1)
+                    .unwrap_or("0")
+                    .parse()
+                    .unwrap_or(0);
             } else if line.starts_with("MemFree:") {
-                free = line.split_whitespace().nth(1).unwrap_or("0").parse().unwrap_or(0);
+                free = line
+                    .split_whitespace()
+                    .nth(1)
+                    .unwrap_or("0")
+                    .parse()
+                    .unwrap_or(0);
             } else if line.starts_with("Cached:") {
-                cached = line.split_whitespace().nth(1).unwrap_or("0").parse().unwrap_or(0);
+                cached = line
+                    .split_whitespace()
+                    .nth(1)
+                    .unwrap_or("0")
+                    .parse()
+                    .unwrap_or(0);
             } else if line.starts_with("Buffers:") {
-                buffers = line.split_whitespace().nth(1).unwrap_or("0").parse().unwrap_or(0);
+                buffers = line
+                    .split_whitespace()
+                    .nth(1)
+                    .unwrap_or("0")
+                    .parse()
+                    .unwrap_or(0);
             } else if line.starts_with("MemAvailable:") {
-                available = line.split_whitespace().nth(1).unwrap_or("0").parse().unwrap_or(0);
+                available = line
+                    .split_whitespace()
+                    .nth(1)
+                    .unwrap_or("0")
+                    .parse()
+                    .unwrap_or(0);
             }
         }
     }
@@ -820,11 +1420,13 @@ fn get_memory_info() -> (u64, u64, u64, u64, u64) { // Returns (total, used, fre
     (total, used, free, cached + buffers, available)
 }
 
-fn get_disk_stats() -> (u64, u64) { // Returns (total, used) in MB
+fn get_disk_stats() -> (u64, u64) {
+    // Returns (total, used) in MB
     if let Ok(output) = std::process::Command::new("df")
-        .arg("-BM")  // Force output in MB
+        .arg("-BM") // Force output in MB
         .arg("/")
-        .output() {
+        .output()
+    {
         if let Ok(output_str) = String::from_utf8(output.stdout) {
             let lines: Vec<&str> = output_str.lines().collect();
             if lines.len() > 1 {
@@ -853,9 +1455,12 @@ fn get_cpu_temp() -> Option<f64> {
 fn get_per_core_freq() -> Vec<f64> {
     let mut freqs = Vec::new();
     let cpu_count = get_cpu_count();
-    
+
     for i in 0..cpu_count {
-        if let Ok(freq) = std::fs::read_to_string(format!("/sys/devices/system/cpu/cpu{}/cpufreq/scaling_cur_freq", i)) {
+        if let Ok(freq) = std::fs::read_to_string(format!(
+            "/sys/devices/system/cpu/cpu{}/cpufreq/scaling_cur_freq",
+            i
+        )) {
             if let Ok(freq_val) = freq.trim().parse::<u32>() {
                 freqs.push(freq_val as f64 / 1000.0); // Convert to MHz
             }
@@ -864,7 +1469,8 @@ fn get_per_core_freq() -> Vec<f64> {
     freqs
 }
 
-fn get_cpu_stats() -> (u64, u64, u64, u64, u64) { // Returns (ctxt, processes, procs_running, procs_blocked, interrupts)
+fn get_cpu_stats() -> (u64, u64, u64, u64, u64) {
+    // Returns (ctxt, processes, procs_running, procs_blocked, interrupts)
     let mut ctxt = 0;
     let mut processes = 0;
     let mut procs_running = 0;
@@ -875,19 +1481,44 @@ fn get_cpu_stats() -> (u64, u64, u64, u64, u64) { // Returns (ctxt, processes, p
         for line in stat.lines() {
             match line.split_whitespace().next() {
                 Some("ctxt") => {
-                    ctxt = line.split_whitespace().nth(1).unwrap_or("0").parse().unwrap_or(0);
+                    ctxt = line
+                        .split_whitespace()
+                        .nth(1)
+                        .unwrap_or("0")
+                        .parse()
+                        .unwrap_or(0);
                 }
                 Some("processes") => {
-                    processes = line.split_whitespace().nth(1).unwrap_or("0").parse().unwrap_or(0);
+                    processes = line
+                        .split_whitespace()
+                        .nth(1)
+                        .unwrap_or("0")
+                        .parse()
+                        .unwrap_or(0);
                 }
                 Some("procs_running") => {
-                    procs_running = line.split_whitespace().nth(1).unwrap_or("0").parse().unwrap_or(0);
+                    procs_running = line
+                        .split_whitespace()
+                        .nth(1)
+                        .unwrap_or("0")
+                        .parse()
+                        .unwrap_or(0);
                 }
                 Some("procs_blocked") => {
-                    procs_blocked = line.split_whitespace().nth(1).unwrap_or("0").parse().unwrap_or(0);
+                    procs_blocked = line
+                        .split_whitespace()
+                        .nth(1)
+                        .unwrap_or("0")
+                        .parse()
+                        .unwrap_or(0);
                 }
                 Some("intr") => {
-                    interrupts = line.split_whitespace().nth(1).unwrap_or("0").parse().unwrap_or(0);
+                    interrupts = line
+                        .split_whitespace()
+                        .nth(1)
+                        .unwrap_or("0")
+                        .parse()
+                        .unwrap_or(0);
                 }
                 _ => {}
             }
@@ -896,7 +1527,8 @@ fn get_cpu_stats() -> (u64, u64, u64, u64, u64) { // Returns (ctxt, processes, p
     (ctxt, processes, procs_running, procs_blocked, interrupts)
 }
 
-fn get_vm_stats() -> (u64, u64, u64, u64) { // Returns (page_faults, swap_in, swap_out, io_wait)
+fn get_vm_stats() -> (u64, u64, u64, u64) {
+    // Returns (page_faults, swap_in, swap_out, io_wait)
     let mut pgfault = 0;
     let mut pswpin = 0;
     let mut pswpout = 0;
@@ -906,13 +1538,28 @@ fn get_vm_stats() -> (u64, u64, u64, u64) { // Returns (page_faults, swap_in, sw
         for line in vmstat.lines() {
             match line.split_whitespace().next() {
                 Some("pgfault") => {
-                    pgfault = line.split_whitespace().nth(1).unwrap_or("0").parse().unwrap_or(0);
+                    pgfault = line
+                        .split_whitespace()
+                        .nth(1)
+                        .unwrap_or("0")
+                        .parse()
+                        .unwrap_or(0);
                 }
                 Some("pswpin") => {
-                    pswpin = line.split_whitespace().nth(1).unwrap_or("0").parse().unwrap_or(0);
+                    pswpin = line
+                        .split_whitespace()
+                        .nth(1)
+                        .unwrap_or("0")
+                        .parse()
+                        .unwrap_or(0);
                 }
                 Some("pswpout") => {
-                    pswpout = line.split_whitespace().nth(1).unwrap_or("0").parse().unwrap_or(0);
+                    pswpout = line
+                        .split_whitespace()
+                        .nth(1)
+                        .unwrap_or("0")
+                        .parse()
+                        .unwrap_or(0);
                 }
                 _ => {}
             }
@@ -922,7 +1569,8 @@ fn get_vm_stats() -> (u64, u64, u64, u64) { // Returns (page_faults, swap_in, sw
     // Get IO wait from /proc/stat
     if let Ok(stat) = std::fs::read_to_string("/proc/stat") {
         if let Some(cpu_line) = stat.lines().next() {
-            let values: Vec<u64> = cpu_line.split_whitespace()
+            let values: Vec<u64> = cpu_line
+                .split_whitespace()
                 .skip(1)
                 .filter_map(|val| val.parse().ok())
                 .collect();
@@ -935,7 +1583,8 @@ fn get_vm_stats() -> (u64, u64, u64, u64) { // Returns (page_faults, swap_in, sw
     (pgfault, pswpin, pswpout, iowait)
 }
 
-fn get_boot_time() -> (String, String) { // Returns (boot_time, last_reboot)
+fn get_boot_time() -> (String, String) {
+    // Returns (boot_time, last_reboot)
     let mut boot_time = String::from("Unknown");
     let mut last_reboot = String::from("Unknown");
 
@@ -947,19 +1596,20 @@ fn get_boot_time() -> (String, String) { // Returns (boot_time, last_reboot)
                     .unwrap_or_default()
                     .as_secs() as f64;
                 let boot_timestamp = now - secs;
-                
+
                 // Format boot time using DateTime::from_timestamp
                 let datetime = chrono::DateTime::from_timestamp(boot_timestamp as i64, 0)
                     .unwrap_or_default()
                     .naive_local();
                 boot_time = datetime.format("%Y-%m-%d %H:%M:%S").to_string();
-                
+
                 // Try to get last reboot from wtmp (if available)
                 if let Ok(output) = std::process::Command::new("last")
                     .arg("-x")
                     .arg("reboot")
                     .arg("-F")
-                    .output() {
+                    .output()
+                {
                     if let Ok(output_str) = String::from_utf8(output.stdout) {
                         if let Some(last_reboot_line) = output_str.lines().next() {
                             last_reboot = last_reboot_line.to_string();
@@ -974,7 +1624,10 @@ fn get_boot_time() -> (String, String) { // Returns (boot_time, last_reboot)
 
 fn get_cpu_count() -> usize {
     if let Ok(cpuinfo) = std::fs::read_to_string("/proc/cpuinfo") {
-        return cpuinfo.lines().filter(|line| line.starts_with("processor")).count();
+        return cpuinfo
+            .lines()
+            .filter(|line| line.starts_with("processor"))
+            .count();
     }
     1
 }
@@ -984,10 +1637,19 @@ fn get_os_info() -> String {
             let mut name = String::new();
             for line in content.lines() {
                 if line.starts_with("PRETTY_NAME=") {
-                    name = line.split('=').nth(1).unwrap_or("").trim_matches('"').to_string();
+                    name = line
+                        .split('=')
+                        .nth(1)
+                        .unwrap_or("")
+                        .trim_matches('"')
+                        .to_string();
                 }
             }
-            if !name.is_empty() { name } else { "Unknown".to_string() }
+            if !name.is_empty() {
+                name
+            } else {
+                "Unknown".to_string()
+            }
         })
         .unwrap_or_else(|_| "Unknown".to_string())
 }
@@ -1013,7 +1675,15 @@ fn get_cpu_details() -> (String, String, String) {
             if line.starts_with("model name") {
                 model = line.split(':').nth(1).unwrap_or("").trim().to_string();
             } else if line.starts_with("cpu MHz") {
-                freq = format!("{:.2} MHz", line.split(':').nth(1).unwrap_or("0").trim().parse::<f64>().unwrap_or(0.0));
+                freq = format!(
+                    "{:.2} MHz",
+                    line.split(':')
+                        .nth(1)
+                        .unwrap_or("0")
+                        .trim()
+                        .parse::<f64>()
+                        .unwrap_or(0.0)
+                );
             } else if line.starts_with("cache size") {
                 cache = line.split(':').nth(1).unwrap_or("").trim().to_string();
             }
@@ -1023,7 +1693,11 @@ fn get_cpu_details() -> (String, String, String) {
 }
 fn get_load_average() -> (f64, f64, f64) {
     if let Ok(loadavg) = std::fs::read_to_string("/proc/loadavg") {
-        let values: Vec<f64> = loadavg.split_whitespace().take(3).filter_map(|s| s.parse().ok()).collect();
+        let values: Vec<f64> = loadavg
+            .split_whitespace()
+            .take(3)
+            .filter_map(|s| s.parse().ok())
+            .collect();
         if values.len() == 3 {
             return (values[0], values[1], values[2]);
         }
@@ -1067,7 +1741,8 @@ fn get_disk_rw_speed() -> (f64, f64) {
             if let Some((last_read, last_write, last_time)) = LAST_READ {
                 let dt = now.duration_since(last_time).as_secs_f64().max(0.1);
                 let read_speed = (read_bytes.saturating_sub(last_read)) as f64 / 1_048_576.0 / dt;
-                let write_speed = (write_bytes.saturating_sub(last_write)) as f64 / 1_048_576.0 / dt;
+                let write_speed =
+                    (write_bytes.saturating_sub(last_write)) as f64 / 1_048_576.0 / dt;
                 LAST_READ = Some((read_bytes, write_bytes, now));
                 (read_speed, write_speed)
             } else {
@@ -1104,7 +1779,9 @@ fn get_storage_type() -> String {
 }
 
 // Helper to count process states from status
-fn get_process_state_counts_from_status(processes: &[ProcessInfo]) -> std::collections::HashMap<String, usize> {
+fn get_process_state_counts_from_status(
+    processes: &[ProcessInfo],
+) -> std::collections::HashMap<String, usize> {
     let mut states = std::collections::HashMap::new();
     for proc in processes {
         let status = proc.status.trim().to_lowercase();
@@ -1141,7 +1818,8 @@ fn get_total_cpu_usage() -> f32 {
     }
     if let Ok(stat) = std::fs::read_to_string("/proc/stat") {
         if let Some(line) = stat.lines().next() {
-            let values: Vec<u64> = line.split_whitespace()
+            let values: Vec<u64> = line
+                .split_whitespace()
                 .skip(1)
                 .filter_map(|val| val.parse().ok())
                 .collect();
