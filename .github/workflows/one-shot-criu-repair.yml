@@ -54,6 +54,9 @@ jobs:
                       metadata: None,
                   };
                   manager.save_all_checkpoints_metadata(&[info]).unwrap();
+                  let raw = std::fs::read_to_string(manager.checkpoint_base_dir.join("checkpoints.toml")).unwrap();
+                  eprintln!("Fixture metadata: {raw}");
+                  eprintln!("Fixture parse: {:?}", toml::from_str::<CheckpointListFile>(&raw).map(|f| f.checkpoints.len()));
                   let restored = manager.list_checkpoints();
                   assert_eq!(restored.len(), 1);
                   assert_eq!(restored[0].pid, 123);
