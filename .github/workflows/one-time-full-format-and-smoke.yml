@@ -1,0 +1,37 @@
+name: One-time full format and smoke
+on:
+  push:
+    branches:
+      - fix/criu-checkpoint-safety-20260918
+permissions:
+  contents: write
+jobs:
+  format-test-and-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/criu-checkpoint-safety-20260918
+      - name: Apply repository-wide Rust formatting
+        run: cargo fmt --all
+      - name: Verify formatting
+        run: cargo fmt --all -- --check
+      - name: Compile
+        run: cargo check --locked
+      - name: Unit tests
+        run: cargo test --locked
+      - name: Build agent
+        run: cargo build --locked
+      - name: Live loopback agent smoke test
+        run: bash scripts/ci_agent_smoke.sh
+      - name: Check diff whitespace
+        run: git diff --check
+      - name: Remove one-time workflow and commit verified formatting
+        run: |
+          rm -f .github/workflows/one-time-full-format-and-smoke.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Format Rust sources and verify loopback agent smoke test"
+          git push origin HEAD:fix/criu-checkpoint-safety-20260918
