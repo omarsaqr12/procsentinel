@@ -1,14 +1,14 @@
+use crate::filter_parser::{FilterExpression, FilterParser};
 use crate::scripting_rules::RuleEngine;
-use crate::filter_parser::{FilterParser, FilterExpression};
-use sysinfo::{ProcessExt, System, SystemExt, PidExt, UserExt};
-#[cfg(target_os = "linux")]
-use procfs::process::Process as ProcfsProcess; // Import procfs for nice value
-use std::convert::TryInto; // Import the try_into function
 use chrono::{Local, TimeZone};
 use libc::{self, c_int};
+#[cfg(target_os = "linux")]
+use procfs::process::Process as ProcfsProcess; // Import procfs for nice value
 use std::collections::HashMap;
+use std::convert::TryInto; // Import the try_into function
+use sysinfo::{PidExt, ProcessExt, System, SystemExt, UserExt};
 
-#[derive(Clone)] 
+#[derive(Clone)]
 pub struct ProcessInfo {
     pub pid: u32,
     pub name: String,
@@ -17,7 +17,7 @@ pub struct ProcessInfo {
     pub parent_pid: Option<u32>,
     pub status: String,
     pub user: Option<String>,
-    pub nice: i32, 
+    pub nice: i32,
     pub start_time_str: String,
     pub start_timestamp: u64, // Store actual start timestamp (seconds since boot) for uptime calculation
     pub cgroup: Option<String>,
@@ -28,7 +28,7 @@ pub struct ProcessInfo {
 
 pub struct ProcessManager {
     system: System,
-    filtered_processes: Vec<ProcessInfo>,// for the scripting
+    filtered_processes: Vec<ProcessInfo>, // for the scripting
     processes: Vec<ProcessInfo>,
     sort_mode: Option<String>,
     sort_ascending: bool,
@@ -41,9 +41,9 @@ pub struct ProcessManager {
 
 impl ProcessManager {
     pub fn new() -> Self {
-        let mut system = System::new_all(); 
-        system.refresh_all(); 
-        ProcessManager { 
+        let mut system = System::new_all();
+        system.refresh_all();
+        ProcessManager {
             system,
             processes: Vec::new(),
             filtered_processes: Vec::new(),
@@ -110,7 +110,7 @@ impl ProcessManager {
             self.set_advanced_filter(None);
             return Ok(());
         }
-        
+
         let expr = self.filter_parser.parse(filter_str)?;
         self.set_advanced_filter(Some(expr));
         Ok(())
@@ -124,7 +124,7 @@ impl ProcessManager {
 
     fn update_processes(&mut self) {
         let mut processes = Vec::new();
-        
+
         for (pid, process) in self.system.processes() {
             // Retrieve nice value using procfs (Linux only)
             #[cfg(target_os = "linux")]
@@ -153,31 +153,33 @@ impl ProcessManager {
             // Format the start time
             let formatted_time = format_timestamp(process.start_time());
             let pid_u32 = pid.as_u32();
-            
+
             // Get cgroup, container, and namespace info
             let cgroup = get_cgroup(pid_u32);
             let container_id = cgroup.as_ref().and_then(|cg| get_container_id(cg));
             let namespace_ids = get_namespace_ids(pid_u32);
-            
+
             // Determine status - prefer procfs on Linux for accuracy
             #[cfg(target_os = "linux")]
             let raw_status = {
                 let pid_i32: i32 = pid.as_u32().try_into().unwrap_or(0);
                 ProcfsProcess::new(pid_i32)
-                    .and_then(|p| p.stat().map(|stat| match stat.state {
-                        'R' => "Running".to_string(),
-                        'S' => "Sleeping".to_string(),
-                        'D' => "Disk Sleep".to_string(),
-                        'Z' => "Zombie".to_string(),
-                        'T' => "Stopped".to_string(),
-                        't' => "Tracing Stop".to_string(),
-                        'X' | 'x' => "Dead".to_string(),
-                        'K' => "Wakekill".to_string(),
-                        'W' => "Waking".to_string(),
-                        'P' => "Parked".to_string(),
-                        'I' => "Idle".to_string(),
-                        _ => format!("Unknown({})", stat.state),
-                    }))
+                    .and_then(|p| {
+                        p.stat().map(|stat| match stat.state {
+                            'R' => "Running".to_string(),
+                            'S' => "Sleeping".to_string(),
+                            'D' => "Disk Sleep".to_string(),
+                            'Z' => "Zombie".to_string(),
+                            'T' => "Stopped".to_string(),
+                            't' => "Tracing Stop".to_string(),
+                            'X' | 'x' => "Dead".to_string(),
+                            'K' => "Wakekill".to_string(),
+                            'W' => "Waking".to_string(),
+                            'P' => "Parked".to_string(),
+                            'I' => "Idle".to_string(),
+                            _ => format!("Unknown({})", stat.state),
+                        })
+                    })
                     .unwrap_or_else(|_| process.status().to_string())
             };
             #[cfg(not(target_os = "linux"))]
@@ -185,7 +187,9 @@ impl ProcessManager {
 
             // Check for both "Sleep" and "Sleeping" as sysinfo output varies
             // If CPU usage > 0, consider it Running regardless of reported state (often transient)
-            let status = if process.cpu_usage() > 0.0 && (raw_status == "Sleep" || raw_status == "Sleeping" || raw_status == "Idle") {
+            let status = if process.cpu_usage() > 0.0
+                && (raw_status == "Sleep" || raw_status == "Sleeping" || raw_status == "Idle")
+            {
                 "Run".to_string()
             } else {
                 raw_status
@@ -198,9 +202,11 @@ impl ProcessManager {
                 memory_usage: process.memory(),
                 parent_pid: process.parent().map(|p| p.as_u32()),
                 status,
-                user: process.user_id()
-                    .and_then(|id| self.system.get_user_by_id(id)
-                    .map(|user| user.name().to_string())),
+                user: process.user_id().and_then(|id| {
+                    self.system
+                        .get_user_by_id(id)
+                        .map(|user| user.name().to_string())
+                }),
                 nice: nice_value as i32,
                 start_time_str: formatted_time,
                 start_timestamp: process.start_time(), // Store actual start timestamp (seconds since boot)
@@ -220,9 +226,14 @@ impl ProcessManager {
             else if let (Some(mode), Some(value)) = (&self.filter_mode, &self.filter_value) {
                 let should_include = match mode.as_str() {
                     "user" => proc_info.user.as_ref().map_or(false, |u| u.contains(value)),
-                    "name" => proc_info.name.to_lowercase().contains(&value.to_lowercase()),
+                    "name" => proc_info
+                        .name
+                        .to_lowercase()
+                        .contains(&value.to_lowercase()),
                     "pid" => proc_info.pid.to_string().contains(value),
-                    "ppid" => proc_info.parent_pid.map_or(false, |p| p.to_string().contains(value)),
+                    "ppid" => proc_info
+                        .parent_pid
+                        .map_or(false, |p| p.to_string().contains(value)),
                     _ => true,
                 };
                 if !should_include {
@@ -232,7 +243,7 @@ impl ProcessManager {
 
             processes.push(proc_info);
         }
-        
+
         self.processes = processes;
 
         // Re-apply sort if there is an active sort mode
@@ -268,21 +279,25 @@ impl ProcessManager {
                 if self.sort_ascending {
                     self.processes.sort_by_key(|p| p.memory_usage);
                 } else {
-                    self.processes.sort_by_key(|p| std::cmp::Reverse(p.memory_usage));
+                    self.processes
+                        .sort_by_key(|p| std::cmp::Reverse(p.memory_usage));
                 }
             }
             "ppid" => {
                 if self.sort_ascending {
                     self.processes.sort_by_key(|p| p.parent_pid.unwrap_or(0));
                 } else {
-                    self.processes.sort_by_key(|p| std::cmp::Reverse(p.parent_pid.unwrap_or(0)));
+                    self.processes
+                        .sort_by_key(|p| std::cmp::Reverse(p.parent_pid.unwrap_or(0)));
                 }
             }
             "start" => {
                 if self.sort_ascending {
-                    self.processes.sort_by(|a, b| a.start_time_str.cmp(&b.start_time_str));
+                    self.processes
+                        .sort_by(|a, b| a.start_time_str.cmp(&b.start_time_str));
                 } else {
-                    self.processes.sort_by(|a, b| b.start_time_str.cmp(&a.start_time_str));
+                    self.processes
+                        .sort_by(|a, b| b.start_time_str.cmp(&a.start_time_str));
                 }
             }
             "nice" => {
@@ -294,9 +309,17 @@ impl ProcessManager {
             }
             "cpu" => {
                 if self.sort_ascending {
-                    self.processes.sort_by(|a, b| a.cpu_usage.partial_cmp(&b.cpu_usage).unwrap_or(std::cmp::Ordering::Equal));
+                    self.processes.sort_by(|a, b| {
+                        a.cpu_usage
+                            .partial_cmp(&b.cpu_usage)
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                    });
                 } else {
-                    self.processes.sort_by(|a, b| b.cpu_usage.partial_cmp(&a.cpu_usage).unwrap_or(std::cmp::Ordering::Equal));
+                    self.processes.sort_by(|a, b| {
+                        b.cpu_usage
+                            .partial_cmp(&a.cpu_usage)
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                    });
                 }
             }
             "name" => {
@@ -334,22 +357,21 @@ impl ProcessManager {
 
     /// Apply profile-based prioritization to move prioritized processes to the top
     /// This should be called after sort_processes() to maintain sort order within groups
-    pub fn apply_prioritization<F>(&mut self, is_prioritized: F) 
+    pub fn apply_prioritization<F>(&mut self, is_prioritized: F)
     where
-        F: Fn(&str) -> bool
+        F: Fn(&str) -> bool,
     {
         // Stable partition: prioritized first, others second
         // This maintains the relative order within each group (preserving the sort)
         self.processes.sort_by_key(|p| !is_prioritized(&p.name));
     }
 
-
     pub fn set_niceness(&self, pid: u32, nice: i32) -> std::io::Result<()> {
         // Validate niceness range
         if nice < -20 || nice > 19 {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
-                "Nice value must be between -20 and 19"
+                "Nice value must be between -20 and 19",
             ));
         }
 
@@ -357,14 +379,14 @@ impl ProcessManager {
         if nice < 0 && unsafe { libc::geteuid() } != 0 {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::PermissionDenied,
-                "Root privileges required for negative nice values (use sudo)"
+                "Root privileges required for negative nice values (use sudo)",
             ));
         }
         let temp_pid: libc::id_t = pid;
 
         // SAFETY: This is safe because we're passing valid arguments
         let result = unsafe { libc::setpriority(libc::PRIO_PROCESS, temp_pid, nice as c_int) };
-        
+
         if result != 0 {
             let err = std::io::Error::last_os_error();
             eprintln!("Failed to set nice for PID {}: {}", pid, err);
@@ -376,7 +398,7 @@ impl ProcessManager {
 
     pub fn apply_nice_adjustments<F>(&self, get_nice_adjustment: F) -> (usize, usize)
     where
-        F: Fn(&str) -> Option<i32>
+        F: Fn(&str) -> Option<i32>,
     {
         let mut success_count = 0;
         let mut fail_count = 0;
@@ -387,7 +409,7 @@ impl ProcessManager {
                 if process.nice != nice_value {
                     match self.set_niceness(process.pid, nice_value) {
                         Ok(_) => success_count += 1,
-                        Err(_) => fail_count += 1, 
+                        Err(_) => fail_count += 1,
                     }
                 }
             }
@@ -396,70 +418,69 @@ impl ProcessManager {
         (success_count, fail_count)
     }
 
-
     pub fn stop_process(&self, pid: u32) -> std::io::Result<()> {
-        use libc::{kill, pid_t, SIGSTOP};
-        
+        use libc::{SIGSTOP, kill, pid_t};
+
         let temp_pid: pid_t = pid as pid_t;
-        
+
         // SAFETY: This is safe because we're passing valid arguments
         let result = unsafe { kill(temp_pid, SIGSTOP) };
-        
+
         if result != 0 {
             return Err(std::io::Error::last_os_error());
         }
-        
+
         Ok(())
     }
-    
 
     pub fn kill_process(&self, pid: u32) -> std::io::Result<()> {
-        use libc::{kill, pid_t, SIGKILL};
-        
+        use libc::{SIGKILL, kill, pid_t};
+
         let temp_pid: pid_t = pid as pid_t;
-        
+
         // SAFETY: This is safe because we're passing valid arguments
         let result = unsafe { kill(temp_pid, SIGKILL) };
-        
+
         if result != 0 {
             return Err(std::io::Error::last_os_error());
         }
-        
+
         Ok(())
     }
 
     pub fn continue_process(&self, pid: u32) -> std::io::Result<()> {
-        use libc::{kill, pid_t, SIGCONT};
-        
+        use libc::{SIGCONT, kill, pid_t};
+
         let temp_pid: pid_t = pid as pid_t;
-        
+
         // SAFETY: This is safe because we're passing valid arguments
         let result = unsafe { kill(temp_pid, SIGCONT) };
-        
+
         if result != 0 {
             return Err(std::io::Error::last_os_error());
         }
-        
+
         Ok(())
     }
 
     pub fn terminate_process(&self, pid: u32) -> std::io::Result<()> {
-        use libc::{kill, pid_t, SIGTERM};
-        
+        use libc::{SIGTERM, kill, pid_t};
+
         let temp_pid: pid_t = pid as pid_t;
-        
+
         // SAFETY: This is safe because we're passing valid arguments
         let result = unsafe { kill(temp_pid, SIGTERM) };
-        
+
         if result != 0 {
             return Err(std::io::Error::last_os_error());
         }
-        
+
         Ok(())
     }
-    
+
     pub fn apply_rules(&mut self, rule_engine: &mut RuleEngine) {
-        self.filtered_processes = self.processes
+        self.filtered_processes = self
+            .processes
             .iter()
             .cloned()
             .filter(|p| rule_engine.evaluate_for(p))
@@ -471,7 +492,7 @@ impl ProcessManager {
     pub fn restart_process_by_pattern(&mut self, pattern: &str) -> std::io::Result<Vec<u32>> {
         let mut restarted_pids = Vec::new();
         let mut processes_to_restart: Vec<(u32, String, Vec<String>)> = Vec::new();
-        
+
         // First, collect all matching processes and read their command lines
         for process in &self.processes {
             if process.name.contains(pattern) {
@@ -487,7 +508,7 @@ impl ProcessManager {
                 }
             }
         }
-        
+
         // Now kill and restart each process
         for (pid, program, args) in processes_to_restart {
             // Kill the process first
@@ -496,13 +517,13 @@ impl ProcessManager {
                 eprintln!("Error killing process {}: {}", pid, e);
                 continue;
             }
-            
+
             // Wait a brief moment for the process to fully terminate
             std::thread::sleep(std::time::Duration::from_millis(100));
-            
+
             // Convert Vec<String> to Vec<&str> for start_process
             let args_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-            
+
             // Restart the process with the same command and arguments
             match self.start_process(&program, &args_refs, None, &[]) {
                 Ok(new_pid) => {
@@ -514,7 +535,7 @@ impl ProcessManager {
                 }
             }
         }
-        
+
         Ok(restarted_pids)
     }
 
@@ -556,7 +577,8 @@ impl ProcessManager {
 
     /// Get all child processes of a given parent PID
     pub fn get_child_processes(&self, parent_pid: u32) -> Vec<ProcessInfo> {
-        self.processes.iter()
+        self.processes
+            .iter()
             .filter(|p| p.parent_pid == Some(parent_pid))
             .cloned()
             .collect()
@@ -566,7 +588,7 @@ impl ProcessManager {
     pub fn kill_process_and_children(&self, pid: u32) -> std::io::Result<Vec<u32>> {
         let mut killed_pids = Vec::new();
         let children = self.get_child_processes(pid);
-        
+
         // First kill all children recursively
         for child in &children {
             let child_children = self.get_child_processes(child.pid);
@@ -580,13 +602,13 @@ impl ProcessManager {
             }
             killed_pids.push(child.pid);
         }
-        
+
         // Then kill the parent
         if let Err(e) = self.kill_process(pid) {
             return Err(e);
         }
         killed_pids.push(pid);
-        
+
         Ok(killed_pids)
     }
 
@@ -599,30 +621,39 @@ impl ProcessManager {
         env_vars: &[(String, String)],
     ) -> std::io::Result<u32> {
         use std::process::Command;
-        
+
         let mut command = Command::new(program);
-        
+
         // Set arguments
         if !args.is_empty() {
             command.args(args);
         }
-        
+
         // Log the command execution
         use std::io::Write;
-        if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open("lpm_debug.log") {
-            writeln!(file, "Starting process: '{}' with args: {:?}", program, args).ok();
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open("lpm_debug.log")
+        {
+            writeln!(
+                file,
+                "Starting process: '{}' with args: {:?}",
+                program, args
+            )
+            .ok();
         }
-        
+
         // Set working directory
         if let Some(dir) = working_dir {
             command.current_dir(dir);
         }
-        
+
         // Set environment variables
         for (key, value) in env_vars {
             command.env(key, value);
         }
-        
+
         // Redirect child process stdout/stderr to /dev/null to prevent output from interfering with TUI
         let child = command
             .stdout(std::process::Stdio::null())
@@ -630,10 +661,10 @@ impl ProcessManager {
             .stdin(std::process::Stdio::null())
             .spawn()?;
         let pid = child.id();
-        
+
         // Store child handle to prevent zombies
         self.spawned_children.push(child);
-        
+
         Ok(pid)
     }
 }
@@ -672,7 +703,7 @@ fn get_container_id(cgroup: &str) -> Option<String> {
             return Some(id.chars().take(12).collect());
         }
     }
-    
+
     // Docker cgroup v2 format: /system.slice/docker-<container_id>.scope
     // Format: 0::/system.slice/docker-<64-char-hex-id>.scope
     if cgroup.contains("/system.slice/docker-") {
@@ -688,7 +719,7 @@ fn get_container_id(cgroup: &str) -> Option<String> {
             }
         }
     }
-    
+
     // Docker cgroup v2 format (alternative): /user.slice/.../docker-<container_id>.scope
     if cgroup.contains("/docker-") && cgroup.contains(".scope") {
         // Extract container ID from docker-<id>.scope pattern
@@ -703,7 +734,7 @@ fn get_container_id(cgroup: &str) -> Option<String> {
             }
         }
     }
-    
+
     // Kubernetes format: /kubepods/.../pod<uuid>/<container_id>
     if cgroup.contains("/kubepods/") {
         // Try to extract container ID from various patterns
@@ -711,15 +742,21 @@ fn get_container_id(cgroup: &str) -> Option<String> {
             // Container IDs are typically 64 hex chars (full) or 12+ (short)
             if part.len() == 64 && part.chars().all(|c| c.is_ascii_hexdigit()) {
                 return Some(part.chars().take(12).collect());
-            } else if part.len() >= 12 && part.len() < 64 && part.chars().all(|c| c.is_alphanumeric()) {
+            } else if part.len() >= 12
+                && part.len() < 64
+                && part.chars().all(|c| c.is_alphanumeric())
+            {
                 // Short container ID
                 return Some(part.chars().take(12).collect());
             }
         }
     }
-    
+
     // Podman format: /machine.slice/... or /libpod/...
-    if cgroup.contains("machine.slice") || cgroup.contains("libpod") || cgroup.contains("user.slice") {
+    if cgroup.contains("machine.slice")
+        || cgroup.contains("libpod")
+        || cgroup.contains("user.slice")
+    {
         // Extract from path - look for long alphanumeric IDs
         for part in cgroup.split('/') {
             // Container IDs in Podman are often long hex strings
@@ -731,18 +768,22 @@ fn get_container_id(cgroup: &str) -> Option<String> {
             }
         }
     }
-    
+
     // Generic: Look for any long alphanumeric string that might be a container ID
     // This catches other container runtimes
     for part in cgroup.split('/') {
-        if part.len() >= 12 && part.len() <= 64 && 
-           part.chars().all(|c| c.is_alphanumeric() || c == '-') &&
-           !part.contains("slice") && !part.contains("scope") && 
-           !part.contains("systemd") && !part.contains("user") {
+        if part.len() >= 12
+            && part.len() <= 64
+            && part.chars().all(|c| c.is_alphanumeric() || c == '-')
+            && !part.contains("slice")
+            && !part.contains("scope")
+            && !part.contains("systemd")
+            && !part.contains("user")
+        {
             return Some(part.chars().take(12).collect());
         }
     }
-    
+
     None
 }
 
@@ -757,9 +798,9 @@ fn get_container_id(_cgroup: &str) -> Option<String> {
 fn read_process_cmdline(pid: u32) -> Option<(String, Vec<String>)> {
     use std::fs;
     use std::io::Read;
-    
+
     let cmdline_path = format!("/proc/{}/cmdline", pid);
-    
+
     // Try to read the cmdline file
     if let Ok(mut file) = fs::File::open(&cmdline_path) {
         let mut contents = Vec::new();
@@ -769,11 +810,9 @@ fn read_process_cmdline(pid: u32) -> Option<(String, Vec<String>)> {
             let parts: Vec<String> = contents
                 .split(|&b| b == 0)
                 .filter(|s| !s.is_empty())
-                .map(|bytes| {
-                    String::from_utf8_lossy(bytes).to_string()
-                })
+                .map(|bytes| String::from_utf8_lossy(bytes).to_string())
                 .collect();
-            
+
             if !parts.is_empty() {
                 let program = parts[0].clone();
                 let args = parts[1..].to_vec();
@@ -781,7 +820,7 @@ fn read_process_cmdline(pid: u32) -> Option<(String, Vec<String>)> {
             }
         }
     }
-    
+
     None
 }
 
@@ -793,7 +832,7 @@ fn read_process_cmdline(_pid: u32) -> Option<(String, Vec<String>)> {
 }
 
 // Helper function to read namespace IDs from /proc/<pid>/ns/* (Linux only)
-// 
+//
 // Returns a HashMap mapping namespace type names (e.g., "pid", "net", "mnt") to their inode IDs.
 // In Linux, every process should have namespace IDs for all namespace types.
 // If a process doesn't have namespace IDs, it's likely:
@@ -804,7 +843,7 @@ fn read_process_cmdline(_pid: u32) -> Option<(String, Vec<String>)> {
 fn get_namespace_ids(pid: u32) -> HashMap<String, u64> {
     let mut namespace_ids = HashMap::new();
     let ns_dir = format!("/proc/{}/ns", pid);
-    
+
     // Try to read the namespace directory
     if let Ok(entries) = std::fs::read_dir(&ns_dir) {
         for entry in entries.flatten() {
@@ -834,7 +873,7 @@ fn get_namespace_ids(pid: u32) -> HashMap<String, u64> {
     }
     // Silently return empty HashMap if directory doesn't exist or can't be read
     // This is expected for processes that have exited or permission issues
-    
+
     namespace_ids
 }
 
@@ -849,6 +888,6 @@ fn format_timestamp(timestamp: u64) -> String {
     // We need to convert it to a DateTime object
     match Local.timestamp_opt(timestamp as i64, 0) {
         chrono::LocalResult::Single(dt) => dt.format("%H:%M:%S").to_string(),
-        _ => "00:00:00".to_string() // Fallback if conversion fails
+        _ => "00:00:00".to_string(), // Fallback if conversion fails
     }
 }

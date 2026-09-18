@@ -1,14 +1,14 @@
 //! Multi-host coordination - Coordinator side (main LPM instance)
 
+use crate::process::ProcessInfo;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
 use tokio::time::timeout;
-use crate::process::ProcessInfo;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RemoteHost {
-    pub address: String,  // IP:port or hostname:port
+    pub address: String, // IP:port or hostname:port
     pub name: String,
     pub connected: bool,
     pub last_update: Option<std::time::SystemTime>,
@@ -26,7 +26,7 @@ pub struct RemoteProcessInfo {
     pub nice: i32,
     pub start_time_str: String,
     pub start_timestamp: u64, // Store actual start timestamp (seconds since boot)
-    pub host: String,  // Host identifier
+    pub host: String,         // Host identifier
 }
 
 impl From<RemoteProcessInfo> for ProcessInfo {
@@ -85,10 +85,7 @@ impl Coordinator {
     }
 
     pub fn get_remote_processes(&self) -> Vec<RemoteProcessInfo> {
-        self.remote_processes.values()
-            .flatten()
-            .cloned()
-            .collect()
+        self.remote_processes.values().flatten().cloned().collect()
     }
 
     pub fn update_host_data(&mut self, host_address: &str, processes: Vec<RemoteProcessInfo>) {
@@ -97,8 +94,9 @@ impl Coordinator {
             host.connected = true;
             host.last_update = Some(std::time::SystemTime::now());
         }
-        
-        self.remote_processes.insert(host_address.to_string(), processes);
+
+        self.remote_processes
+            .insert(host_address.to_string(), processes);
     }
 
     pub fn mark_host_disconnected(&mut self, host_address: &str) {
@@ -109,23 +107,26 @@ impl Coordinator {
 }
 
 // Standalone async function to fetch data
-pub async fn fetch_host_data(host_address: String, host_name: String) -> Result<Vec<RemoteProcessInfo>, String> {
+pub async fn fetch_host_data(
+    host_address: String,
+    host_name: String,
+) -> Result<Vec<RemoteProcessInfo>, String> {
     let url = format!("http://{}/api/processes", host_address);
-    
+
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(5))
         .build()
         .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
-    
+
     let response = timeout(Duration::from_secs(5), client.get(&url).send())
         .await
         .map_err(|_| "Request timeout".to_string())?
         .map_err(|e| format!("HTTP request failed: {}", e))?;
-    
+
     if !response.status().is_success() {
         return Err(format!("HTTP error: {}", response.status()));
     }
-    
+
     #[derive(Deserialize)]
     struct AgentProcessInfo {
         pid: u32,
@@ -140,12 +141,14 @@ pub async fn fetch_host_data(host_address: String, host_name: String) -> Result<
         #[serde(default)]
         start_timestamp: u64,
     }
-    
-    let agent_processes: Vec<AgentProcessInfo> = response.json()
+
+    let agent_processes: Vec<AgentProcessInfo> = response
+        .json()
         .await
         .map_err(|e| format!("Failed to parse JSON: {}", e))?;
-    
-    let processes: Vec<RemoteProcessInfo> = agent_processes.into_iter()
+
+    let processes: Vec<RemoteProcessInfo> = agent_processes
+        .into_iter()
         .map(|ap| RemoteProcessInfo {
             pid: ap.pid,
             name: ap.name,
@@ -160,15 +163,14 @@ pub async fn fetch_host_data(host_address: String, host_name: String) -> Result<
             host: host_name.clone(),
         })
         .collect();
-    
+
     Ok(processes)
 }
 
 impl Coordinator {
-
     pub async fn test_connection(&self, host_address: &str) -> bool {
         let url = format!("http://{}/api/health", host_address);
-        
+
         if let Ok(client) = reqwest::Client::builder()
             .timeout(Duration::from_secs(2))
             .build()
@@ -188,4 +190,3 @@ impl Default for Coordinator {
         Self::new()
     }
 }
-

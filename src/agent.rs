@@ -5,13 +5,7 @@
 //! For remote access, forward the loopback port through an authenticated SSH
 //! connection rather than exposing it directly on the network.
 
-use axum::{
-    extract::State,
-    http::StatusCode,
-    response::Json,
-    routing::get,
-    Router,
-};
+use axum::{Router, extract::State, http::StatusCode, response::Json, routing::get};
 use serde::{Deserialize, Serialize};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
@@ -82,7 +76,10 @@ impl Agent {
         let addr = agent_listen_addr(self.port);
         let listener = tokio::net::TcpListener::bind(addr).await?;
 
-        println!("Agent server listening on {} (loopback only; use an SSH tunnel for remote access)", addr);
+        println!(
+            "Agent server listening on {} (loopback only; use an SSH tunnel for remote access)",
+            addr
+        );
 
         axum::serve(listener, app).await?;
 
@@ -100,7 +97,8 @@ async fn get_processes(
     let mut pm = state.process_manager.write().await;
     pm.refresh();
 
-    let processes: Vec<AgentProcessInfo> = pm.get_processes()
+    let processes: Vec<AgentProcessInfo> = pm
+        .get_processes()
         .iter()
         .map(|p| AgentProcessInfo::from(p.clone()))
         .collect();

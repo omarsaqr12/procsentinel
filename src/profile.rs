@@ -2,14 +2,14 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::fs;
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Profile {
     pub name: String,
     pub prioritize_processes: Vec<String>, // Process name patterns
-    pub hide_processes: Vec<String>,        // Process name patterns to hide
+    pub hide_processes: Vec<String>,       // Process name patterns to hide
     pub nice_adjustments: HashMap<String, i32>, // Process name -> nice value
 }
 
@@ -43,18 +43,18 @@ impl ProfileManager {
                 p
             })
             .unwrap_or_else(|| PathBuf::from("."));
-        
+
         let config_path = config_dir.join("profiles.toml");
-        
+
         let mut manager = Self {
             profiles: Vec::new(),
             active_profile: None,
             config_path,
         };
-        
+
         // Load profiles from file
         let _ = manager.load_profiles();
-        
+
         manager
     }
 
@@ -101,10 +101,11 @@ impl ProfileManager {
     pub fn is_process_prioritized(&self, process_name: &str) -> bool {
         if let Some(profile_name) = &self.active_profile {
             if let Some(profile) = self.get_profile(profile_name) {
-                return profile.prioritize_processes.iter()
-                    .any(|pattern| process_name.contains(pattern) || 
-                         pattern == "*" || 
-                         process_name.matches(pattern).next().is_some());
+                return profile.prioritize_processes.iter().any(|pattern| {
+                    process_name.contains(pattern)
+                        || pattern == "*"
+                        || process_name.matches(pattern).next().is_some()
+                });
             }
         }
         false
@@ -113,10 +114,11 @@ impl ProfileManager {
     pub fn should_hide_process(&self, process_name: &str) -> bool {
         if let Some(profile_name) = &self.active_profile {
             if let Some(profile) = self.get_profile(profile_name) {
-                return profile.hide_processes.iter()
-                    .any(|pattern| process_name.contains(pattern) || 
-                         pattern == "*" || 
-                         process_name.matches(pattern).next().is_some());
+                return profile.hide_processes.iter().any(|pattern| {
+                    process_name.contains(pattern)
+                        || pattern == "*"
+                        || process_name.matches(pattern).next().is_some()
+                });
             }
         }
         false
@@ -172,4 +174,3 @@ impl Default for ProfileManager {
         Self::new()
     }
 }
-

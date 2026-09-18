@@ -1,27 +1,27 @@
+use crate::graph;
 use crate::process;
 use crate::scripting_rules::RuleEngine;
-use crate::graph;
+use crossterm::{
+    event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
+    execute,
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
+};
+use process::ProcessManager;
+use std::error::Error;
 use std::io::stdout;
 use std::thread::sleep;
 use std::time::Duration;
-use process::ProcessManager;
-use std::error::Error;
-use crossterm::{
-    event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
-    terminal::{ disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-    execute,
-};
 
 use ratatui::{
-    prelude::*,
-    widgets::{
-        Block, Borders, List, ListItem, Paragraph, Table, Row, Cell,
-        Dataset, GraphType, Chart, BorderType,
-    },
-    layout::{Layout, Constraint, Direction, Alignment},
-    style::{Style, Modifier, Color},
-    text::{Line, Span},
     Frame,
+    layout::{Alignment, Constraint, Direction, Layout},
+    prelude::*,
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+    widgets::{
+        Block, BorderType, Borders, Cell, Chart, Dataset, GraphType, List, ListItem, Paragraph,
+        Row, Table,
+    },
 };
 
 use crate::process_log::{ProcessExitLogEntry, render_process_log_tab};
@@ -32,7 +32,7 @@ use std::collections::{HashSet, VecDeque};
 #[derive(PartialEq)]
 enum ViewMode {
     ProcessList,
-    Statistics,  // Renamed from GraphView
+    Statistics, // Renamed from GraphView
     FilterSort,
     Sort,
     Filter,
@@ -43,20 +43,20 @@ enum ViewMode {
     ProcessLog,      // Added for new feature
     Help,            // Added for new feature
     RuleInput,
-    GroupedView,     // Added for container/cgroup grouping
-    ContainerDetail, // Detailed container view
-    NamespaceDetail, // Detailed namespace view
-    Scheduler,       // Job scheduler view
-    StartProcess,    // Start new process view
-    AdvancedFilter,  // Advanced filter input
-    ProfileManagement, // Profile management view
-    ProfileEditor,     // Profile editing view
-    AlertManagement, // Alert management view
-    AlertEditor,     // Alert editing view
+    GroupedView,          // Added for container/cgroup grouping
+    ContainerDetail,      // Detailed container view
+    NamespaceDetail,      // Detailed namespace view
+    Scheduler,            // Job scheduler view
+    StartProcess,         // Start new process view
+    AdvancedFilter,       // Advanced filter input
+    ProfileManagement,    // Profile management view
+    ProfileEditor,        // Profile editing view
+    AlertManagement,      // Alert management view
+    AlertEditor,          // Alert editing view
     CheckpointManagement, // CRIU checkpoint management view
-    MultiHost, // Multi-host view
-    HostManagement, // Host management view
-    TaskEditor, // Task editor view for creating/editing scheduled tasks
+    MultiHost,            // Multi-host view
+    HostManagement,       // Host management view
+    TaskEditor,           // Task editor view for creating/editing scheduled tasks
 }
 
 // Input state for various operations
@@ -71,16 +71,16 @@ struct InputState {
     program_path: String,
     working_dir: String,
     arguments: String,
-    env_vars: Vec<(String, String)>, // (key, value)
+    env_vars: Vec<(String, String)>,  // (key, value)
     current_start_input_field: usize, // 0=program, 1=working_dir, 2=arguments, 3=env_vars
     // Advanced filter input
     advanced_filter_input: String,
     // Task editor input
     task_name: String,
-    task_schedule_type: String, // "cron", "interval", or "once"
+    task_schedule_type: String,  // "cron", "interval", or "once"
     task_schedule_value: String, // Cron expression, interval seconds, or timestamp
-    task_action_type: String, // "restart", "cleanup", or "rule"
-    task_action_value: String, // Process pattern, cleanup params, or rule expression
+    task_action_type: String,    // "restart", "cleanup", or "rule"
+    task_action_value: String,   // Process pattern, cleanup params, or rule expression
     current_task_field: usize, // 0=name, 1=schedule_type, 2=schedule_value, 3=action_type, 4=action_value
 }
 
@@ -152,7 +152,7 @@ pub enum StatisticsTab {
     Disk,
     Processes,
     Advanced,
-    Help,            // New tab for help
+    Help, // New tab for help
 }
 
 // LogGroupMode enum to track process log grouping
@@ -175,36 +175,36 @@ struct App {
     sort_ascending: bool,
     sort_mode: Option<String>,
     filter_mode: Option<String>,
-    stats_scroll_offset: usize,  // New field for statistics scrolling
-    nice_input_state: NiceInputState,  // Track which input we're currently handling
-    current_stats_tab: StatisticsTab,  // New field for tracking current statistics tab
+    stats_scroll_offset: usize,       // New field for statistics scrolling
+    nice_input_state: NiceInputState, // Track which input we're currently handling
+    current_stats_tab: StatisticsTab, // New field for tracking current statistics tab
     change_nice_scroll_offset: usize,
     selected_process_index: usize,
     per_process_graph_scroll_offset: usize,  // Add this
-    selected_process_for_graph: Option<u32>,  // Add this
+    selected_process_for_graph: Option<u32>, // Add this
     kill_stop_input_state: KillStopInputState,
     process_exit_log: VecDeque<ProcessExitLogEntry>, // Add this
     prev_pids: std::collections::HashMap<u32, String>, // For tracking exited processes with names
     process_first_seen: std::collections::HashMap<u32, std::time::Instant>, // Track when we first saw each process
-    log_filter_input: String, // For process log search/filter
-    log_filter_active: bool,  // True if in filter input mode
-    log_scroll_offset: usize, // For scrolling the process log
+    log_filter_input: String,     // For process log search/filter
+    log_filter_active: bool,      // True if in filter input mode
+    log_scroll_offset: usize,     // For scrolling the process log
     log_group_mode: LogGroupMode, // For grouping process log
-    pub rule_engine: RuleEngine, //for scripting
+    pub rule_engine: RuleEngine,  //for scripting
     // Grouped view state
     grouped_view_type: crate::process_group::GroupType, // Current grouping type
-    selected_group_index: usize, // Selected group in grouped view
-    expanded_groups: HashSet<String>, // Set of expanded group IDs
-    grouped_view_scroll_offset: usize, // Scroll offset for grouped view
+    selected_group_index: usize,                        // Selected group in grouped view
+    expanded_groups: HashSet<String>,                   // Set of expanded group IDs
+    grouped_view_scroll_offset: usize,                  // Scroll offset for grouped view
     current_namespace_type: Option<String>, // Current namespace type if grouping by namespace
-    frozen_group_order: Vec<String>, // Frozen group order to prevent jumping when expanded
-    group_view_frozen: bool, // Whether group order is frozen
-    selected_container_id: Option<String>, // Selected container for detail view
+    frozen_group_order: Vec<String>,        // Frozen group order to prevent jumping when expanded
+    group_view_frozen: bool,                // Whether group order is frozen
+    selected_container_id: Option<String>,  // Selected container for detail view
     selected_namespace: Option<(String, u64)>, // Selected namespace (type, id) for detail view
-    detail_view_scroll_offset: usize, // Scroll offset for detail view
+    detail_view_scroll_offset: usize,       // Scroll offset for detail view
     // Scheduler state
     scheduler: crate::scheduler::Scheduler,
-    selected_task_index: usize, // Selected task in scheduler view
+    selected_task_index: usize,     // Selected task in scheduler view
     scheduler_scroll_offset: usize, // Scroll offset for scheduler view
     scheduler_last_check: std::time::Instant, // Last time we checked for due tasks
     // Profile management
@@ -255,13 +255,13 @@ impl App {
             sort_ascending: true,
             sort_mode: Some("pid".to_string()),
             filter_mode: None,
-            stats_scroll_offset: 0,  // Initialize stats scroll offset
+            stats_scroll_offset: 0, // Initialize stats scroll offset
             nice_input_state: NiceInputState::SelectingPid,
-            current_stats_tab: StatisticsTab::Graphs,  // Default to Graphs tab
+            current_stats_tab: StatisticsTab::Graphs, // Default to Graphs tab
             change_nice_scroll_offset: 0,
             selected_process_index: 0,
-            per_process_graph_scroll_offset: 0,  // Add this
-            selected_process_for_graph: None,    // Add this
+            per_process_graph_scroll_offset: 0, // Add this
+            selected_process_for_graph: None,   // Add this
             kill_stop_input_state: KillStopInputState::SelectingPid,
             process_exit_log: VecDeque::with_capacity(100), // Keep last 100 exits
             prev_pids: std::collections::HashMap::new(),
@@ -330,97 +330,113 @@ impl App {
         }
         self.last_process_refresh = std::time::Instant::now();
 
-        let prev_map: std::collections::HashMap<u32, process::ProcessInfo> = self.process_manager.get_processes().iter().map(|p| (p.pid, p.clone())).collect();
+        let prev_map: std::collections::HashMap<u32, process::ProcessInfo> = self
+            .process_manager
+            .get_processes()
+            .iter()
+            .map(|p| (p.pid, p.clone()))
+            .collect();
         let prev_pids = self.prev_pids.clone();
         self.process_manager.refresh();
-        
+
         // Apply profile-based prioritization if active
         if let Some(_profile_name) = self.profile_manager.get_active_profile() {
             let profile_mgr = &self.profile_manager;
             // Prioritize
-            self.process_manager.apply_prioritization(|name| {
-                profile_mgr.is_process_prioritized(name)
-            });
+            self.process_manager
+                .apply_prioritization(|name| profile_mgr.is_process_prioritized(name));
             // Apply nice values (persistent enforcement)
-            self.process_manager.apply_nice_adjustments(|name| {
-                profile_mgr.get_nice_adjustment(name)
-            });
+            self.process_manager
+                .apply_nice_adjustments(|name| profile_mgr.get_nice_adjustment(name));
         }
-        
+
         self.graph_data.update(&self.process_manager);
-        let current: Vec<_> = self.process_manager.get_processes().iter().map(|p| p.pid).collect();
+        let current: Vec<_> = self
+            .process_manager
+            .get_processes()
+            .iter()
+            .map(|p| p.pid)
+            .collect();
         let current_set: HashSet<u32> = current.iter().copied().collect();
-        
+
         // Track newly seen processes
         for pid in &current_set {
             if !prev_pids.contains_key(pid) {
-                self.process_first_seen.insert(*pid, std::time::Instant::now());
+                self.process_first_seen
+                    .insert(*pid, std::time::Instant::now());
             }
         }
-        
+
         // Find exited PIDs
         for (pid, _name) in &prev_pids {
             if !current_set.contains(pid) {
                 if let Some(proc) = prev_map.get(pid) {
                     let exit_time = Local::now();
-                // Calculate uptime based on when we first saw the process
-                let uptime_secs = if let Some(first_seen) = self.process_first_seen.get(pid) {
-                    first_seen.elapsed().as_secs()
-                } else {
-                    // Fallback: try to use start_timestamp if we didn't track first seen
-                    // This handles processes that were already running when app started
-                    if let Ok(uptime_str) = std::fs::read_to_string("/proc/uptime") {
-                        if let Some(system_uptime_str) = uptime_str.split_whitespace().next() {
-                            if let Ok(system_uptime) = system_uptime_str.parse::<f64>() {
-                                let process_uptime = system_uptime - proc.start_timestamp as f64;
-                                process_uptime.max(0.0) as u64
+                    // Calculate uptime based on when we first saw the process
+                    let uptime_secs = if let Some(first_seen) = self.process_first_seen.get(pid) {
+                        first_seen.elapsed().as_secs()
+                    } else {
+                        // Fallback: try to use start_timestamp if we didn't track first seen
+                        // This handles processes that were already running when app started
+                        if let Ok(uptime_str) = std::fs::read_to_string("/proc/uptime") {
+                            if let Some(system_uptime_str) = uptime_str.split_whitespace().next() {
+                                if let Ok(system_uptime) = system_uptime_str.parse::<f64>() {
+                                    let process_uptime =
+                                        system_uptime - proc.start_timestamp as f64;
+                                    process_uptime.max(0.0) as u64
+                                } else {
+                                    0
+                                }
                             } else {
                                 0
                             }
                         } else {
                             0
                         }
-                    } else {
-                        0
+                    };
+                    let entry = ProcessExitLogEntry {
+                        pid: proc.pid,
+                        name: proc.name.clone(),
+                        user: proc.user.clone(),
+                        start_time: proc.start_time_str.clone(),
+                        exit_time,
+                        uptime_secs,
+                    };
+                    if self.process_exit_log.len() >= 100 {
+                        self.process_exit_log.pop_front();
                     }
-                };
-                let entry = ProcessExitLogEntry {
-                    pid: proc.pid,
-                    name: proc.name.clone(),
-                    user: proc.user.clone(),
-                    start_time: proc.start_time_str.clone(),
-                    exit_time,
-                    uptime_secs,
-                };
-                if self.process_exit_log.len() >= 100 {
-                    self.process_exit_log.pop_front();
+                    self.process_exit_log.push_back(entry);
+                    // Clean up tracking
+                    self.process_first_seen.remove(pid);
                 }
-                self.process_exit_log.push_back(entry);
-                // Clean up tracking
-                self.process_first_seen.remove(pid);
             }
         }
-    }
         // Update prev_pids with current process names
-        self.prev_pids = self.process_manager.get_processes()
+        self.prev_pids = self
+            .process_manager
+            .get_processes()
             .iter()
             .map(|p| (p.pid, p.name.clone()))
             .collect();
-        
+
         // Check alerts
-        self.alert_manager.check_alerts(self.process_manager.get_processes(), &prev_pids);
-        
+        self.alert_manager
+            .check_alerts(self.process_manager.get_processes(), &prev_pids);
+
         // Check for due scheduler tasks every 5 seconds
         if self.scheduler_last_check.elapsed().as_secs() >= 5 {
             let due_tasks = self.scheduler.check_due_tasks();
             // Clone task info before execution to avoid borrowing issues
-            let tasks_to_execute: Vec<(String, crate::scheduler::ScheduleAction)> = due_tasks.iter()
+            let tasks_to_execute: Vec<(String, crate::scheduler::ScheduleAction)> = due_tasks
+                .iter()
                 .filter_map(|&idx| {
-                    self.scheduler.get_tasks().get(idx)
+                    self.scheduler
+                        .get_tasks()
+                        .get(idx)
                         .map(|t| (t.name.clone(), t.action.clone()))
                 })
                 .collect();
-            
+
             for (task_name, action) in tasks_to_execute {
                 let result = match &action {
                     crate::scheduler::ScheduleAction::RestartProcess { pattern } => {
@@ -429,22 +445,40 @@ impl App {
                                 if pids.is_empty() {
                                     format!("No processes found matching '{}' to restart", pattern)
                                 } else {
-                                    format!("Restarted {} process(es) matching '{}'", pids.len(), pattern)
+                                    format!(
+                                        "Restarted {} process(es) matching '{}'",
+                                        pids.len(),
+                                        pattern
+                                    )
                                 }
-                            },
-                            Err(e) => format!("Error restarting processes matching '{}': {}", pattern, e),
+                            }
+                            Err(e) => {
+                                format!("Error restarting processes matching '{}': {}", pattern, e)
+                            }
                         }
                     }
                     crate::scheduler::ScheduleAction::StartProcess { program, args } => {
                         let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-                        match self.process_manager.start_process(program, &args_str, None, &[]) {
+                        match self
+                            .process_manager
+                            .start_process(program, &args_str, None, &[])
+                        {
                             Ok(pid) => format!("Started process '{}' (PID: {})", program, pid),
                             Err(e) => format!("Error starting '{}': {}", program, e),
                         }
                     }
-                    crate::scheduler::ScheduleAction::CleanupIdle { cpu_threshold, memory_threshold, action, .. } => {
+                    crate::scheduler::ScheduleAction::CleanupIdle {
+                        cpu_threshold,
+                        memory_threshold,
+                        action,
+                        ..
+                    } => {
                         // Note: duration_seconds is not currently checked - would require historical tracking
-                        match self.process_manager.cleanup_idle_processes(*cpu_threshold, *memory_threshold, action) {
+                        match self.process_manager.cleanup_idle_processes(
+                            *cpu_threshold,
+                            *memory_threshold,
+                            action,
+                        ) {
                             Ok(pids) => format!("Cleaned up {} idle processes", pids.len()),
                             Err(e) => format!("Error: {}", e),
                         }
@@ -486,10 +520,6 @@ impl App {
     }
 }
 
-
-
-
-
 fn draw_sidebar(f: &mut Frame, app: &App, area: Rect) {
     let items = vec![
         "Processes",
@@ -504,7 +534,20 @@ fn draw_sidebar(f: &mut Frame, app: &App, area: Rect) {
     ];
 
     let current_index = match app.view_mode {
-        ViewMode::ProcessList | ViewMode::FilterSort | ViewMode::Sort | ViewMode::Filter | ViewMode::FilterInput | ViewMode::KillStop | ViewMode::ChangeNice | ViewMode::StartProcess | ViewMode::AdvancedFilter | ViewMode::PerProcessGraph | ViewMode::ProcessLog | ViewMode::GroupedView | ViewMode::ContainerDetail | ViewMode::NamespaceDetail => 0,
+        ViewMode::ProcessList
+        | ViewMode::FilterSort
+        | ViewMode::Sort
+        | ViewMode::Filter
+        | ViewMode::FilterInput
+        | ViewMode::KillStop
+        | ViewMode::ChangeNice
+        | ViewMode::StartProcess
+        | ViewMode::AdvancedFilter
+        | ViewMode::PerProcessGraph
+        | ViewMode::ProcessLog
+        | ViewMode::GroupedView
+        | ViewMode::ContainerDetail
+        | ViewMode::NamespaceDetail => 0,
         ViewMode::Statistics => 1,
         ViewMode::ProfileManagement | ViewMode::ProfileEditor => 2,
         ViewMode::AlertManagement | ViewMode::AlertEditor => 3,
@@ -520,7 +563,10 @@ fn draw_sidebar(f: &mut Frame, app: &App, area: Rect) {
         .enumerate()
         .map(|(i, &item)| {
             let style = if i == current_index {
-                Style::default().fg(Color::White).bg(Color::Cyan).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::White)
+                    .bg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::White)
             };
@@ -529,8 +575,19 @@ fn draw_sidebar(f: &mut Frame, app: &App, area: Rect) {
         .collect();
 
     let list = List::new(list_items)
-        .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title("Menu").style(Style::default().fg(Color::White).bg(Color::Rgb(20, 20, 20))))
-        .highlight_style(Style::default().fg(Color::White).bg(Color::Black).add_modifier(Modifier::BOLD));
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .title("Menu")
+                .style(Style::default().fg(Color::White).bg(Color::Rgb(20, 20, 20))),
+        )
+        .highlight_style(
+            Style::default()
+                .fg(Color::White)
+                .bg(Color::Black)
+                .add_modifier(Modifier::BOLD),
+        );
 
     f.render_widget(list, area);
 }
@@ -560,7 +617,7 @@ pub fn ui_renderer() -> Result<(), Box<dyn Error>> {
 
             draw_sidebar(f, &app, chunks[0]);
             let main_area = chunks[1];
-            
+
             // Render background
             let background = Block::default().style(Style::default().bg(Color::White));
             f.render_widget(background, main_area);
@@ -771,7 +828,7 @@ pub fn ui_renderer() -> Result<(), Box<dyn Error>> {
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     terminal.show_cursor()?;
-    
+
     Ok(())
 }
 
@@ -779,13 +836,13 @@ const PROCESS_TABLE_HEIGHT: usize = 12;
 
 fn draw_process_list(f: &mut Frame, app: &mut App, area: Rect) {
     let size = area;
-    
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Min(3),     // Header
+            Constraint::Min(3),                             // Header
             Constraint::Min(size.height.saturating_sub(8)), // Process list (reduced to make room for multi-line menu)
-            Constraint::Length(5),   // Menu (increased to 5 lines to show all options)
+            Constraint::Length(5), // Menu (increased to 5 lines to show all options)
         ])
         .split(size);
 
@@ -799,11 +856,7 @@ fn draw_process_list(f: &mut Frame, app: &mut App, area: Rect) {
     let get_sort_indicator = |column: &str| -> &str {
         if let Some(mode) = &app.sort_mode {
             if mode == column {
-                if app.sort_ascending {
-                    " ↑"
-                } else {
-                    " ↓"
-                }
+                if app.sort_ascending { " ↑" } else { " ↓" }
             } else {
                 ""
             }
@@ -814,10 +867,7 @@ fn draw_process_list(f: &mut Frame, app: &mut App, area: Rect) {
 
     // Header
     let headers = if app.multi_select_mode {
-        let mut h = vec![
-            "✓".to_string(),
-            format!("PID{}", get_sort_indicator("pid")),
-        ];
+        let mut h = vec!["✓".to_string(), format!("PID{}", get_sort_indicator("pid"))];
         if app.multi_host_mode {
             h.push("HOST".to_string());
         }
@@ -833,9 +883,7 @@ fn draw_process_list(f: &mut Frame, app: &mut App, area: Rect) {
         ]);
         h
     } else {
-        let mut h = vec![
-            format!("PID{}", get_sort_indicator("pid")),
-        ];
+        let mut h = vec![format!("PID{}", get_sort_indicator("pid"))];
         if app.multi_host_mode {
             h.push("HOST".to_string());
         }
@@ -852,10 +900,14 @@ fn draw_process_list(f: &mut Frame, app: &mut App, area: Rect) {
         h
     };
 
-    let header_cells = headers
-        .iter()
-        .map(|h| Cell::from(h.as_str()).style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD)));
-    
+    let header_cells = headers.iter().map(|h| {
+        Cell::from(h.as_str()).style(
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        )
+    });
+
     let header = Row::new(header_cells)
         .style(Style::default().bg(Color::Black))
         .height(1);
@@ -868,17 +920,18 @@ fn draw_process_list(f: &mut Frame, app: &mut App, area: Rect) {
     } else {
         app.process_manager.get_processes()
     };
-    
+
     // Filter by active profile (hide processes)
-    let processes: Vec<&process::ProcessInfo> = if app.profile_manager.get_active_profile().is_some() {
-        processes.iter()
-            .filter(|p| !app.profile_manager.should_hide_process(&p.name))
-            .collect()
-    } else {
-        processes.iter().collect()
-    };
-    
-    
+    let processes: Vec<&process::ProcessInfo> =
+        if app.profile_manager.get_active_profile().is_some() {
+            processes
+                .iter()
+                .filter(|p| !app.profile_manager.should_hide_process(&p.name))
+                .collect()
+        } else {
+            processes.iter().collect()
+        };
+
     let rows: Vec<Row> = processes
         .iter()
         .skip(app.scroll_offset)
@@ -890,11 +943,14 @@ fn draw_process_list(f: &mut Frame, app: &mut App, area: Rect) {
             } else {
                 Style::default().fg(Color::Black)
             };
-            
+
             // Check if process has active alerts
-            let has_alert = app.alert_manager.get_active_alerts().iter()
+            let has_alert = app
+                .alert_manager
+                .get_active_alerts()
+                .iter()
                 .any(|a| a.process_pid == Some(process.pid));
-            
+
             // Highlight if has alert
             let style = if has_alert {
                 base_style.fg(Color::Red).add_modifier(Modifier::BOLD)
@@ -908,39 +964,110 @@ fn draw_process_list(f: &mut Frame, app: &mut App, area: Rect) {
                 c if c > 25.0 => Style::default().fg(Color::Yellow),
                 _ => Style::default().fg(Color::Green),
             };
-            
+
             let is_selected = app.selected_processes.contains(&process.pid);
             let is_current = (app.scroll_offset + i) == app.selected_process_index;
-            
+
             let mut cells = if app.multi_select_mode {
                 vec![
-                    Cell::from(if is_selected { "✓" } else { " " })
-                        .style(if is_selected { Style::default().fg(Color::Green).add_modifier(Modifier::BOLD) } else { Style::default() }),
-                    Cell::from(process.pid.to_string())
-                        .style(if is_current { Style::default().fg(Color::White).bg(Color::Cyan).add_modifier(Modifier::BOLD) } else { Style::default().fg(Color::Black) }),
+                    Cell::from(if is_selected { "✓" } else { " " }).style(if is_selected {
+                        Style::default()
+                            .fg(Color::Green)
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default()
+                    }),
+                    Cell::from(process.pid.to_string()).style(if is_current {
+                        Style::default()
+                            .fg(Color::White)
+                            .bg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(Color::Black)
+                    }),
                 ]
             } else {
-                vec![
-                    Cell::from(process.pid.to_string())
-                        .style(if is_current { Style::default().fg(Color::White).bg(Color::Cyan).add_modifier(Modifier::BOLD) } else { Style::default().fg(Color::Black) }),
-                ]
+                vec![Cell::from(process.pid.to_string()).style(if is_current {
+                    Style::default()
+                        .fg(Color::White)
+                        .bg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::Black)
+                })]
             };
-            
+
             // Add HOST column if multi-host mode is enabled
             if app.multi_host_mode {
                 let host_name = process.host.as_ref().map(|h| h.as_str()).unwrap_or("local");
                 cells.push(Cell::from(host_name).style(Style::default().fg(Color::Cyan)));
             }
-            
+
             cells.extend(vec![
-                Cell::from(process.name.clone()).style(if is_current { Style::default().fg(Color::White).bg(Color::Cyan).add_modifier(Modifier::BOLD) } else { Style::default().fg(Color::Black) }),
-                Cell::from(process.user.clone().unwrap_or_default()).style(if is_current { Style::default().fg(Color::White).bg(Color::Cyan).add_modifier(Modifier::BOLD) } else { Style::default().fg(Color::Magenta) }),
-                Cell::from(format!("{:.2}%", process.cpu_usage)).style(if is_current { Style::default().fg(Color::White).bg(Color::Cyan).add_modifier(Modifier::BOLD) } else { cpu_style }),
-                Cell::from(format!("{}MB", memory_mb)).style(if is_current { Style::default().fg(Color::White).bg(Color::Cyan).add_modifier(Modifier::BOLD) } else { style }),
-                Cell::from(process.start_time_str.clone()).style(if is_current { Style::default().fg(Color::White).bg(Color::Cyan).add_modifier(Modifier::BOLD) } else { Style::default().fg(Color::Black) }),
-                Cell::from(process.nice.to_string()).style(if is_current { Style::default().fg(Color::White).bg(Color::Cyan).add_modifier(Modifier::BOLD) } else { Style::default().fg(Color::Black) }),
-                Cell::from(process.status.trim()).style(if is_current { Style::default().fg(Color::White).bg(Color::Cyan).add_modifier(Modifier::BOLD) } else { get_status_style(&process.status) }),
-                Cell::from(process.parent_pid.unwrap_or(0).to_string()).style(if is_current { Style::default().fg(Color::White).bg(Color::Cyan).add_modifier(Modifier::BOLD) } else { style }),
+                Cell::from(process.name.clone()).style(if is_current {
+                    Style::default()
+                        .fg(Color::White)
+                        .bg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::Black)
+                }),
+                Cell::from(process.user.clone().unwrap_or_default()).style(if is_current {
+                    Style::default()
+                        .fg(Color::White)
+                        .bg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::Magenta)
+                }),
+                Cell::from(format!("{:.2}%", process.cpu_usage)).style(if is_current {
+                    Style::default()
+                        .fg(Color::White)
+                        .bg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    cpu_style
+                }),
+                Cell::from(format!("{}MB", memory_mb)).style(if is_current {
+                    Style::default()
+                        .fg(Color::White)
+                        .bg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    style
+                }),
+                Cell::from(process.start_time_str.clone()).style(if is_current {
+                    Style::default()
+                        .fg(Color::White)
+                        .bg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::Black)
+                }),
+                Cell::from(process.nice.to_string()).style(if is_current {
+                    Style::default()
+                        .fg(Color::White)
+                        .bg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::Black)
+                }),
+                Cell::from(process.status.trim()).style(if is_current {
+                    Style::default()
+                        .fg(Color::White)
+                        .bg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    get_status_style(&process.status)
+                }),
+                Cell::from(process.parent_pid.unwrap_or(0).to_string()).style(if is_current {
+                    Style::default()
+                        .fg(Color::White)
+                        .bg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    style
+                }),
             ]);
 
             Row::new(cells)
@@ -949,8 +1076,8 @@ fn draw_process_list(f: &mut Frame, app: &mut App, area: Rect) {
 
     let widths: Vec<Constraint> = if app.multi_select_mode {
         let mut w = vec![
-            Constraint::Length(2),  // Selection indicator
-            Constraint::Length(8),  // PID
+            Constraint::Length(2), // Selection indicator
+            Constraint::Length(8), // PID
         ];
         if app.multi_host_mode {
             w.push(Constraint::Length(15)); // HOST
@@ -968,7 +1095,7 @@ fn draw_process_list(f: &mut Frame, app: &mut App, area: Rect) {
         w
     } else {
         let mut w = vec![
-            Constraint::Length(8),  // PID
+            Constraint::Length(8), // PID
         ];
         if app.multi_host_mode {
             w.push(Constraint::Length(15)); // HOST
@@ -1005,29 +1132,51 @@ fn draw_process_list(f: &mut Frame, app: &mut App, area: Rect) {
     } else {
         String::new()
     };
-    let active_profile_indicator = app.profile_manager.get_active_profile()
+    let active_profile_indicator = app
+        .profile_manager
+        .get_active_profile()
         .map(|s| format!(" [PROFILE: {}]", s))
         .unwrap_or_default();
-    
+
     // Split menu into multiple lines to ensure all options are visible
     let menu_text = vec![
         // Line 1: Navigation and status indicators
         Line::from(vec![
             Span::styled("[↑/↓] Scroll  ", Style::default().fg(Color::Cyan)),
             Span::raw("| "),
-            Span::styled("[M] Multi-Select  ", Style::default().fg(if app.multi_select_mode { Color::Green } else { Color::Yellow })),
+            Span::styled(
+                "[M] Multi-Select  ",
+                Style::default().fg(if app.multi_select_mode {
+                    Color::Green
+                } else {
+                    Color::Yellow
+                }),
+            ),
             if app.multi_select_mode {
-                Span::styled(multi_select_status, Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))
+                Span::styled(
+                    multi_select_status,
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                )
             } else {
                 Span::raw("")
             },
             if !active_profile_indicator.is_empty() {
-                Span::styled(active_profile_indicator, Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD))
+                Span::styled(
+                    active_profile_indicator,
+                    Style::default()
+                        .fg(Color::Magenta)
+                        .add_modifier(Modifier::BOLD),
+                )
             } else {
                 Span::raw("")
             },
             if !alert_indicator.is_empty() {
-                Span::styled(alert_indicator, Style::default().fg(Color::Red).add_modifier(Modifier::BOLD))
+                Span::styled(
+                    alert_indicator,
+                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                )
             } else {
                 Span::raw("")
             },
@@ -1040,7 +1189,10 @@ fn draw_process_list(f: &mut Frame, app: &mut App, area: Rect) {
             Span::raw("| "),
             Span::styled("[3] Kill/Stop  ", Style::default().fg(Color::Red)),
             Span::raw("| "),
-            Span::styled("[4] Per-Process Graph  ", Style::default().fg(Color::Magenta)),
+            Span::styled(
+                "[4] Per-Process Graph  ",
+                Style::default().fg(Color::Magenta),
+            ),
             Span::raw("| "),
             Span::styled("[5] Process Log  ", Style::default().fg(Color::Cyan)),
             Span::raw("| "),
@@ -1076,7 +1228,6 @@ fn draw_process_list(f: &mut Frame, app: &mut App, area: Rect) {
 }
 
 fn draw_filter_sort_menu(f: &mut Frame, app: &App, area: Rect) {
-    
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -1088,22 +1239,47 @@ fn draw_filter_sort_menu(f: &mut Frame, app: &App, area: Rect) {
 
     // Header
     let header_text = vec![
-        Span::styled("Linux Process Manager", Style::default().fg(Color::Black).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "Linux Process Manager",
+            Style::default()
+                .fg(Color::Black)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::raw(" | "),
-        Span::styled(format!("Total Processes: {}", app.process_manager.get_processes().len()), Style::default().fg(Color::Black)),
+        Span::styled(
+            format!(
+                "Total Processes: {}",
+                app.process_manager.get_processes().len()
+            ),
+            Style::default().fg(Color::Black),
+        ),
     ];
-    
+
     let header = Paragraph::new(Line::from(header_text))
-        .block(Block::default().borders(Borders::ALL).border_type(ratatui::widgets::BorderType::Rounded).style(Style::default().fg(Color::Black)))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_type(ratatui::widgets::BorderType::Rounded)
+                .style(Style::default().fg(Color::Black)),
+        )
         .alignment(Alignment::Center);
     f.render_widget(header, chunks[0]);
 
     // Menu items
     let items = vec![
         ListItem::new(Span::styled("[1] Sort", Style::default().fg(Color::Yellow))),
-        ListItem::new(Span::styled("[2] Filter", Style::default().fg(Color::Green))),
-        ListItem::new(Span::styled("[3] Advanced Filter", Style::default().fg(Color::Cyan))),
-        ListItem::new(Span::styled("[X] Script Filtering", Style::default().fg(Color::Magenta))),
+        ListItem::new(Span::styled(
+            "[2] Filter",
+            Style::default().fg(Color::Green),
+        )),
+        ListItem::new(Span::styled(
+            "[3] Advanced Filter",
+            Style::default().fg(Color::Cyan),
+        )),
+        ListItem::new(Span::styled(
+            "[X] Script Filtering",
+            Style::default().fg(Color::Magenta),
+        )),
         ListItem::new(Span::styled("[←] Back", Style::default().fg(Color::Blue))),
     ];
 
@@ -1117,13 +1293,13 @@ fn draw_filter_sort_menu(f: &mut Frame, app: &App, area: Rect) {
 
 fn draw_sort_menu(f: &mut Frame, app: &App, area: Rect) {
     let size = area;
-    
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),  // Title
-            Constraint::Min(10),    // Menu items
-            Constraint::Length(3),  // Status
+            Constraint::Length(3), // Title
+            Constraint::Min(10),   // Menu items
+            Constraint::Length(3), // Status
         ])
         .split(size);
 
@@ -1136,13 +1312,34 @@ fn draw_sort_menu(f: &mut Frame, app: &App, area: Rect) {
 
     // Menu items
     let items = vec![
-        ListItem::new(Span::styled("[1] Sort by PID", Style::default().fg(Color::Yellow))),
-        ListItem::new(Span::styled("[2] Sort by Memory", Style::default().fg(Color::Green))),
-        ListItem::new(Span::styled("[3] Sort by PPID", Style::default().fg(Color::Blue))),
-        ListItem::new(Span::styled("[4] Sort by Start Time", Style::default().fg(Color::Magenta))),
-        ListItem::new(Span::styled("[5] Sort by Nice Value", Style::default().fg(Color::Cyan))),
-        ListItem::new(Span::styled("[6] Sort by CPU Usage", Style::default().fg(Color::Red))),
-        ListItem::new(Span::styled("[a] Toggle Ascending/Descending", Style::default().fg(Color::Black))),
+        ListItem::new(Span::styled(
+            "[1] Sort by PID",
+            Style::default().fg(Color::Yellow),
+        )),
+        ListItem::new(Span::styled(
+            "[2] Sort by Memory",
+            Style::default().fg(Color::Green),
+        )),
+        ListItem::new(Span::styled(
+            "[3] Sort by PPID",
+            Style::default().fg(Color::Blue),
+        )),
+        ListItem::new(Span::styled(
+            "[4] Sort by Start Time",
+            Style::default().fg(Color::Magenta),
+        )),
+        ListItem::new(Span::styled(
+            "[5] Sort by Nice Value",
+            Style::default().fg(Color::Cyan),
+        )),
+        ListItem::new(Span::styled(
+            "[6] Sort by CPU Usage",
+            Style::default().fg(Color::Red),
+        )),
+        ListItem::new(Span::styled(
+            "[a] Toggle Ascending/Descending",
+            Style::default().fg(Color::Black),
+        )),
         ListItem::new(Span::styled("[←] Back", Style::default().fg(Color::Blue))),
     ];
 
@@ -1154,7 +1351,14 @@ fn draw_sort_menu(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(menu, chunks[1]);
 
     // Status
-    let order_text = format!("Current Order: {}", if app.sort_ascending { "Ascending ↑" } else { "Descending ↓" });
+    let order_text = format!(
+        "Current Order: {}",
+        if app.sort_ascending {
+            "Ascending ↑"
+        } else {
+            "Descending ↓"
+        }
+    );
     let status = Paragraph::new(order_text)
         .style(Style::default())
         .alignment(Alignment::Center)
@@ -1165,12 +1369,12 @@ fn draw_sort_menu(f: &mut Frame, app: &App, area: Rect) {
 
 fn draw_filter_menu(f: &mut Frame, area: Rect) {
     let size = area;
-    
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),  // Title
-            Constraint::Min(10),    // Menu items
+            Constraint::Length(3), // Title
+            Constraint::Min(10),   // Menu items
         ])
         .split(size);
 
@@ -1183,11 +1387,26 @@ fn draw_filter_menu(f: &mut Frame, area: Rect) {
 
     // Menu items
     let items = vec![
-        ListItem::new(Span::styled("[1] Filter by User", Style::default().fg(Color::Magenta))),
-        ListItem::new(Span::styled("[2] Filter by Name", Style::default().fg(Color::Green))),
-        ListItem::new(Span::styled("[3] Filter by PID", Style::default().fg(Color::Yellow))),
-        ListItem::new(Span::styled("[4] Filter by PPID", Style::default().fg(Color::Cyan))),
-        ListItem::new(Span::styled("[Esc] Clear Filter", Style::default().fg(Color::Red))),
+        ListItem::new(Span::styled(
+            "[1] Filter by User",
+            Style::default().fg(Color::Magenta),
+        )),
+        ListItem::new(Span::styled(
+            "[2] Filter by Name",
+            Style::default().fg(Color::Green),
+        )),
+        ListItem::new(Span::styled(
+            "[3] Filter by PID",
+            Style::default().fg(Color::Yellow),
+        )),
+        ListItem::new(Span::styled(
+            "[4] Filter by PPID",
+            Style::default().fg(Color::Cyan),
+        )),
+        ListItem::new(Span::styled(
+            "[Esc] Clear Filter",
+            Style::default().fg(Color::Red),
+        )),
         ListItem::new(Span::styled("[←] Back", Style::default().fg(Color::Blue))),
     ];
 
@@ -1201,13 +1420,13 @@ fn draw_filter_menu(f: &mut Frame, area: Rect) {
 
 fn draw_filter_input_menu(f: &mut Frame, app: &App, area: Rect) {
     let size = area;
-    
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),  // Title
-            Constraint::Min(10),    // Instructions
-            Constraint::Length(3),  // Input
+            Constraint::Length(3), // Title
+            Constraint::Min(10),   // Instructions
+            Constraint::Length(3), // Input
         ])
         .split(size);
 
@@ -1229,17 +1448,27 @@ fn draw_filter_input_menu(f: &mut Frame, app: &App, area: Rect) {
     let mut instructions = vec![
         ListItem::new(Span::styled(
             format!("Enter value to filter by {}", filter_type.to_lowercase()),
-            Style::default().fg(Color::Black)
+            Style::default().fg(Color::Black),
         )),
-        ListItem::new(Span::styled("[Enter] Apply Filter", Style::default().fg(Color::Green))),
+        ListItem::new(Span::styled(
+            "[Enter] Apply Filter",
+            Style::default().fg(Color::Green),
+        )),
         ListItem::new(Span::styled("[←] Back", Style::default().fg(Color::Blue))),
     ];
 
-    if app.filter_mode.as_deref().map_or(false, |m| m == "pid" || m == "ppid") {
-        instructions.insert(1, ListItem::new(Span::styled(
-            "(Numbers only)",
-            Style::default().fg(Color::Yellow)
-        )));
+    if app
+        .filter_mode
+        .as_deref()
+        .map_or(false, |m| m == "pid" || m == "ppid")
+    {
+        instructions.insert(
+            1,
+            ListItem::new(Span::styled(
+                "(Numbers only)",
+                Style::default().fg(Color::Yellow),
+            )),
+        );
     }
 
     let instructions_widget = List::new(instructions)
@@ -1270,16 +1499,17 @@ fn draw_kill_stop_menu(f: &mut Frame, app: &mut App, area: Rect) {
     let title = Paragraph::new("Process Control Menu")
         .style(Style::default().fg(Color::Red).add_modifier(Modifier::BOLD))
         .alignment(Alignment::Center)
-        .block(Block::default().borders(Borders::ALL).border_type(ratatui::widgets::BorderType::Thick));
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_type(ratatui::widgets::BorderType::Thick),
+        );
     f.render_widget(title, title_chunk[0]);
     let size = title_chunk[1];
     // Add a blank line below the title for spacing
     let spacing_chunk = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(1),
-            Constraint::Min(1),
-        ])
+        .constraints([Constraint::Length(1), Constraint::Min(1)])
         .split(size);
     let size = spacing_chunk[1];
 
@@ -1304,12 +1534,15 @@ fn draw_kill_stop_menu(f: &mut Frame, app: &mut App, area: Rect) {
     } else {
         app.process_manager.get_processes()
     };
-    
 
     let headers = ["PID", "NAME", "STATUS", "CPU%", "MEM(MB)", "USER"];
-    let header_cells = headers
-        .iter()
-        .map(|h| Cell::from(*h).style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD)));
+    let header_cells = headers.iter().map(|h| {
+        Cell::from(*h).style(
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        )
+    });
     let header = Row::new(header_cells)
         .style(Style::default().bg(Color::Blue))
         .height(1);
@@ -1323,7 +1556,10 @@ fn draw_kill_stop_menu(f: &mut Frame, app: &mut App, area: Rect) {
             let idx = app.scroll_offset + i;
             let highlight = idx == app.selected_process_index;
             let style = if highlight {
-                Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD)
             } else if i % 2 == 0 {
                 Style::default().fg(Color::Cyan)
             } else {
@@ -1336,21 +1572,27 @@ fn draw_kill_stop_menu(f: &mut Frame, app: &mut App, area: Rect) {
                 Cell::from(process.status.trim()).style(get_status_style(&process.status)),
                 Cell::from(format!("{:.1}%", process.cpu_usage)).style(style),
                 Cell::from(format!("{}", memory_mb)).style(style),
-                Cell::from(process.user.clone().unwrap_or_default()).style(Style::default().fg(Color::Magenta)),
+                Cell::from(process.user.clone().unwrap_or_default())
+                    .style(Style::default().fg(Color::Magenta)),
             ])
         })
         .collect::<Vec<_>>();
 
     let process_table = Table::new(visible_processes)
         .header(header)
-        .block(Block::default().borders(Borders::ALL).title("Processes (↑↓ to move, Enter to select)").style(Style::default().fg(Color::Black)))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Processes (↑↓ to move, Enter to select)")
+                .style(Style::default().fg(Color::Black)),
+        )
         .widths(&[
-            Constraint::Length(8),   // PID
-            Constraint::Length(20),  // NAME
-            Constraint::Length(10),  // STATUS
-            Constraint::Length(8),   // CPU%
-            Constraint::Length(10),  // MEM(MB)
-            Constraint::Length(12),  // USER
+            Constraint::Length(8),  // PID
+            Constraint::Length(20), // NAME
+            Constraint::Length(10), // STATUS
+            Constraint::Length(8),  // CPU%
+            Constraint::Length(10), // MEM(MB)
+            Constraint::Length(12), // USER
         ]);
     f.render_widget(process_table, chunks[0]);
 
@@ -1365,95 +1607,159 @@ fn draw_kill_stop_menu(f: &mut Frame, app: &mut App, area: Rect) {
         .split(chunks[1]);
 
     // Process details
-    let selected = app.selected_process_index.min(processes.len().saturating_sub(1));
+    let selected = app
+        .selected_process_index
+        .min(processes.len().saturating_sub(1));
     let proc = processes.get(selected);
     let details = if let Some(proc) = proc {
         vec![
-            Line::from(vec![Span::styled("Selected Process:", Style::default().fg(Color::Black).add_modifier(Modifier::BOLD))]),
+            Line::from(vec![Span::styled(
+                "Selected Process:",
+                Style::default()
+                    .fg(Color::Black)
+                    .add_modifier(Modifier::BOLD),
+            )]),
             Line::from(vec![Span::raw(format!("PID: {}", proc.pid))]),
             Line::from(vec![Span::raw(format!("Name: {}", proc.name))]),
-            Line::from(vec![Span::raw(format!("User: {}", proc.user.clone().unwrap_or_default()))]),
+            Line::from(vec![Span::raw(format!(
+                "User: {}",
+                proc.user.clone().unwrap_or_default()
+            ))]),
             Line::from(vec![Span::raw(format!("Status: {}", proc.status))]),
         ]
     } else {
         vec![Line::from("No process selected.")]
     };
-    let details_box = Paragraph::new(details)
-        .block(Block::default().borders(Borders::ALL).title("Details").style(Style::default().fg(Color::Black)));
+    let details_box = Paragraph::new(details).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title("Details")
+            .style(Style::default().fg(Color::Black)),
+    );
     f.render_widget(details_box, right_chunks[0]);
 
     // Input box for action
     let input_text = match &app.kill_stop_input_state {
         KillStopInputState::EnteringAction => {
-            "Enter action: [k] Kill, [s] Stop, [c] Continue, [t] Terminate, [Esc] Cancel".to_string()
+            "Enter action: [k] Kill, [s] Stop, [c] Continue, [t] Terminate, [Esc] Cancel"
+                .to_string()
         }
-        KillStopInputState::ConfirmingAction { .. } => {
-            "Confirming action...".to_string()
-        }
-        _ => {
-            "Press Enter to select action".to_string()
-        }
+        KillStopInputState::ConfirmingAction { .. } => "Confirming action...".to_string(),
+        _ => "Press Enter to select action".to_string(),
     };
     let input_box = Paragraph::new(input_text)
         .style(Style::default().fg(Color::Black))
-        .block(Block::default().borders(Borders::ALL).title("Action Input").style(Style::default().fg(Color::Black)));
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Action Input")
+                .style(Style::default().fg(Color::Black)),
+        );
     f.render_widget(input_box, right_chunks[1]);
 
     // Instructions and status
     let mut info = vec![
         Line::from(vec![Span::styled(
-            "Instructions:", Style::default().fg(Color::Black).add_modifier(Modifier::BOLD)
+            "Instructions:",
+            Style::default()
+                .fg(Color::Black)
+                .add_modifier(Modifier::BOLD),
         )]),
-        Line::from(vec![Span::raw("- Use ↑/↓ to move selection in the process list.")]),
-        Line::from(vec![Span::raw("- Press Enter to select a process and input an action.")]),
-        Line::from(vec![Span::raw("- Type k/s/c/t for Kill/Stop/Continue/Terminate, then Esc to cancel or return." )]),
+        Line::from(vec![Span::raw(
+            "- Use ↑/↓ to move selection in the process list.",
+        )]),
+        Line::from(vec![Span::raw(
+            "- Press Enter to select a process and input an action.",
+        )]),
+        Line::from(vec![Span::raw(
+            "- Type k/s/c/t for Kill/Stop/Continue/Terminate, then Esc to cancel or return.",
+        )]),
         Line::from(vec![Span::raw("- Press Esc to cancel and return.")]),
     ];
     if let Some((msg, is_error)) = &app.input_state.message {
         info.push(Line::from(vec![Span::styled(
             msg,
-            if *is_error { Style::default().fg(Color::Red) } else { Style::default().fg(Color::Green) }
+            if *is_error {
+                Style::default().fg(Color::Red)
+            } else {
+                Style::default().fg(Color::Green)
+            },
         )]));
     }
-    let info_box = Paragraph::new(info)
-        .block(Block::default().borders(Borders::ALL).title("Help & Status").style(Style::default().fg(Color::Black)));
+    let info_box = Paragraph::new(info).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title("Help & Status")
+            .style(Style::default().fg(Color::Black)),
+    );
     f.render_widget(info_box, right_chunks[2]);
-    
+
     // Draw confirmation dialog if in confirmation state
-    if let KillStopInputState::ConfirmingAction { pid, process_name, action_type } = &app.kill_stop_input_state {
+    if let KillStopInputState::ConfirmingAction {
+        pid,
+        process_name,
+        action_type,
+    } = &app.kill_stop_input_state
+    {
         draw_confirmation_dialog(f, *pid, process_name, action_type, area);
     }
-    
+
     // Draw dependency warning dialog if in dependency warning state
-    if let KillStopInputState::DependencyWarning { pid, process_name, action_type, child_count, children } = &app.kill_stop_input_state {
-        draw_dependency_warning_dialog(f, *pid, process_name, action_type, *child_count, children, area);
+    if let KillStopInputState::DependencyWarning {
+        pid,
+        process_name,
+        action_type,
+        child_count,
+        children,
+    } = &app.kill_stop_input_state
+    {
+        draw_dependency_warning_dialog(
+            f,
+            *pid,
+            process_name,
+            action_type,
+            *child_count,
+            children,
+            area,
+        );
     }
-    
+
     // Draw batch confirmation dialog if in batch confirmation state
-    if let KillStopInputState::ConfirmingBatchAction { pids, process_names, action_type } = &app.kill_stop_input_state {
+    if let KillStopInputState::ConfirmingBatchAction {
+        pids,
+        process_names,
+        action_type,
+    } = &app.kill_stop_input_state
+    {
         draw_batch_confirmation_dialog(f, pids, process_names, action_type, area);
     }
 }
 
 // Draw confirmation dialog for process control actions
-fn draw_confirmation_dialog(f: &mut Frame, pid: u32, process_name: &str, action_type: &str, area: Rect) {
+fn draw_confirmation_dialog(
+    f: &mut Frame,
+    pid: u32,
+    process_name: &str,
+    action_type: &str,
+    area: Rect,
+) {
     use ratatui::layout::Rect;
-    
+
     let size = area;
-    
+
     // Create a centered dialog box
     let dialog_width = 60;
     let dialog_height = 10;
     let x = (size.width.saturating_sub(dialog_width)) / 2;
     let y = (size.height.saturating_sub(dialog_height)) / 2;
-    
+
     let dialog_area = Rect {
         x,
         y,
         width: dialog_width,
         height: dialog_height,
     };
-    
+
     // Draw semi-transparent overlay (by drawing a block)
     f.render_widget(ratatui::widgets::Clear, dialog_area);
     let overlay = Block::default()
@@ -1462,7 +1768,7 @@ fn draw_confirmation_dialog(f: &mut Frame, pid: u32, process_name: &str, action_
         .border_type(ratatui::widgets::BorderType::Thick)
         .style(Style::default().bg(Color::Black));
     f.render_widget(overlay, dialog_area);
-    
+
     // Prepare dialog content
     let action_name = match action_type {
         "kill" => "Kill process",
@@ -1471,7 +1777,7 @@ fn draw_confirmation_dialog(f: &mut Frame, pid: u32, process_name: &str, action_
         "continue" => "Continue process",
         _ => "Perform action on process",
     };
-    
+
     let warning = match action_type {
         "kill" => "⚠️  WARNING: This will forcefully terminate the process!",
         "stop" => "⚠️  This will suspend the process.",
@@ -1479,7 +1785,7 @@ fn draw_confirmation_dialog(f: &mut Frame, pid: u32, process_name: &str, action_
         "continue" => "This will resume the suspended process.",
         _ => "",
     };
-    
+
     let warning_color = match action_type {
         "kill" => Color::Red,
         "stop" => Color::Yellow,
@@ -1487,30 +1793,37 @@ fn draw_confirmation_dialog(f: &mut Frame, pid: u32, process_name: &str, action_
         "continue" => Color::Green,
         _ => Color::Black,
     };
-    
+
     let dialog_content = vec![
         Line::from(vec![Span::styled(
             format!("Confirm: {}", action_name),
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
         )]),
         Line::from(""),
-        Line::from(vec![Span::raw(format!("Process: {} (PID: {})", process_name, pid))]),
+        Line::from(vec![Span::raw(format!(
+            "Process: {} (PID: {})",
+            process_name, pid
+        ))]),
         Line::from(""),
         Line::from(vec![Span::styled(
             warning,
-            Style::default().fg(warning_color).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(warning_color)
+                .add_modifier(Modifier::BOLD),
         )]),
         Line::from(""),
         Line::from(vec![Span::styled(
             "Press [y] or [Enter] to confirm, [n] or [Esc] to cancel",
-            Style::default().fg(Color::Cyan)
+            Style::default().fg(Color::Cyan),
         )]),
     ];
-    
+
     let dialog_paragraph = Paragraph::new(dialog_content)
         .alignment(Alignment::Center)
         .wrap(ratatui::widgets::Wrap { trim: true });
-    
+
     // Inner area for content (accounting for borders)
     let inner_area = Rect {
         x: dialog_area.x + 1,
@@ -1518,30 +1831,38 @@ fn draw_confirmation_dialog(f: &mut Frame, pid: u32, process_name: &str, action_
         width: dialog_area.width.saturating_sub(2),
         height: dialog_area.height.saturating_sub(2),
     };
-    
+
     f.render_widget(dialog_paragraph, inner_area);
 }
 
 // Draw dependency warning dialog for processes with children
-fn draw_dependency_warning_dialog(f: &mut Frame, pid: u32, process_name: &str, action_type: &str, child_count: usize, children: &[(u32, String)], area: Rect) {
+fn draw_dependency_warning_dialog(
+    f: &mut Frame,
+    pid: u32,
+    process_name: &str,
+    action_type: &str,
+    child_count: usize,
+    children: &[(u32, String)],
+    area: Rect,
+) {
     use ratatui::layout::Rect;
-    
+
     let size = area;
-    
+
     // Create a larger dialog box for dependency warning
     let dialog_width = 70;
     // Increase height to ensure options are visible: base height + children + extra space for options
     let dialog_height = (15 + child_count.min(5)) as u16; // Show up to 5 children + room for options
     let x = (size.width.saturating_sub(dialog_width)) / 2;
     let y = (size.height.saturating_sub(dialog_height)) / 2;
-    
+
     let dialog_area = Rect {
         x,
         y,
         width: dialog_width,
         height: dialog_height,
     };
-    
+
     // Draw warning overlay
     f.render_widget(ratatui::widgets::Clear, dialog_area);
     let overlay = Block::default()
@@ -1550,61 +1871,70 @@ fn draw_dependency_warning_dialog(f: &mut Frame, pid: u32, process_name: &str, a
         .border_type(ratatui::widgets::BorderType::Thick)
         .style(Style::default().bg(Color::Black));
     f.render_widget(overlay, dialog_area);
-    
+
     let action_name = match action_type {
         "kill" => "Kill process",
         "terminate" => "Terminate process",
         _ => "Perform action on process",
     };
-    
+
     let mut dialog_content = vec![
         Line::from(vec![Span::styled(
             format!("⚠️  DEPENDENCY WARNING: {}", action_name),
-            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
+            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
         )]),
         Line::from(""),
-        Line::from(vec![Span::raw(format!("Process: {} (PID: {})", process_name, pid))]),
+        Line::from(vec![Span::raw(format!(
+            "Process: {} (PID: {})",
+            process_name, pid
+        ))]),
         Line::from(""),
         Line::from(vec![Span::styled(
             format!("This process has {} child process(es)!", child_count),
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
         )]),
         Line::from(""),
     ];
-    
+
     // Show first few children
     if !children.is_empty() {
         dialog_content.push(Line::from(vec![Span::styled(
             "Child processes:",
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
         )]));
         for (child_pid, child_name) in children.iter().take(5) {
-            dialog_content.push(Line::from(vec![Span::raw(
-                format!("  - {} (PID: {})", child_name, child_pid)
-            )]));
+            dialog_content.push(Line::from(vec![Span::raw(format!(
+                "  - {} (PID: {})",
+                child_name, child_pid
+            ))]));
         }
         if children.len() > 5 {
-            dialog_content.push(Line::from(vec![Span::raw(
-                format!("  ... and {} more", children.len() - 5)
-            )]));
+            dialog_content.push(Line::from(vec![Span::raw(format!(
+                "  ... and {} more",
+                children.len() - 5
+            ))]));
         }
         dialog_content.push(Line::from(""));
     }
-    
+
     dialog_content.push(Line::from(vec![Span::styled(
         "⚠️  Killing parent may orphan or affect children!",
-        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
+        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
     )]));
     dialog_content.push(Line::from(""));
     dialog_content.push(Line::from(vec![Span::styled(
         "[1] Kill parent only  |  [2] Kill parent + all children  |  [n/Esc] Cancel",
-        Style::default().fg(Color::Cyan)
+        Style::default().fg(Color::Cyan),
     )]));
-    
+
     let dialog_paragraph = Paragraph::new(dialog_content)
         .alignment(Alignment::Left)
         .wrap(ratatui::widgets::Wrap { trim: true });
-    
+
     // Inner area for content
     let inner_area = Rect {
         x: dialog_area.x + 1,
@@ -1612,29 +1942,35 @@ fn draw_dependency_warning_dialog(f: &mut Frame, pid: u32, process_name: &str, a
         width: dialog_area.width.saturating_sub(2),
         height: dialog_area.height.saturating_sub(2),
     };
-    
+
     f.render_widget(dialog_paragraph, inner_area);
 }
 
 // Draw batch confirmation dialog for multiple processes
-fn draw_batch_confirmation_dialog(f: &mut Frame, pids: &[u32], process_names: &[String], action_type: &str, area: Rect) {
+fn draw_batch_confirmation_dialog(
+    f: &mut Frame,
+    pids: &[u32],
+    process_names: &[String],
+    action_type: &str,
+    area: Rect,
+) {
     use ratatui::layout::Rect;
-    
+
     let size = area;
-    
+
     // Create a larger dialog box for batch operations
     let dialog_width = 70;
     let dialog_height = (10 + pids.len().min(8)) as u16; // Show up to 8 processes
     let x = (size.width.saturating_sub(dialog_width)) / 2;
     let y = (size.height.saturating_sub(dialog_height)) / 2;
-    
+
     let dialog_area = Rect {
         x,
         y,
         width: dialog_width,
         height: dialog_height,
     };
-    
+
     // Draw warning overlay
     f.render_widget(ratatui::widgets::Clear, dialog_area);
     let overlay = Block::default()
@@ -1643,7 +1979,7 @@ fn draw_batch_confirmation_dialog(f: &mut Frame, pids: &[u32], process_names: &[
         .border_type(ratatui::widgets::BorderType::Thick)
         .style(Style::default().bg(Color::Black));
     f.render_widget(overlay, dialog_area);
-    
+
     let action_name = match action_type {
         "kill" => "Kill processes",
         "stop" => "Stop processes",
@@ -1651,42 +1987,50 @@ fn draw_batch_confirmation_dialog(f: &mut Frame, pids: &[u32], process_names: &[
         "continue" => "Continue processes",
         _ => "Perform action on processes",
     };
-    
+
     let mut dialog_content = vec![
         Line::from(vec![Span::styled(
             format!("Confirm Batch Action: {}", action_name),
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
         )]),
         Line::from(""),
         Line::from(vec![Span::styled(
             format!("This will affect {} process(es):", pids.len()),
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
         )]),
         Line::from(""),
     ];
-    
+
     // Show first few processes
     for (i, (pid, name)) in pids.iter().zip(process_names.iter()).take(8).enumerate() {
-        dialog_content.push(Line::from(vec![Span::raw(
-            format!("  {}. {} (PID: {})", i + 1, name, pid)
-        )]));
+        dialog_content.push(Line::from(vec![Span::raw(format!(
+            "  {}. {} (PID: {})",
+            i + 1,
+            name,
+            pid
+        ))]));
     }
     if pids.len() > 8 {
-        dialog_content.push(Line::from(vec![Span::raw(
-            format!("  ... and {} more", pids.len() - 8)
-        )]));
+        dialog_content.push(Line::from(vec![Span::raw(format!(
+            "  ... and {} more",
+            pids.len() - 8
+        ))]));
     }
-    
+
     dialog_content.push(Line::from(""));
     dialog_content.push(Line::from(vec![Span::styled(
         "Press [y] or [Enter] to confirm, [n] or [Esc] to cancel",
-        Style::default().fg(Color::Cyan)
+        Style::default().fg(Color::Cyan),
     )]));
-    
+
     let dialog_paragraph = Paragraph::new(dialog_content)
         .alignment(Alignment::Left)
         .wrap(ratatui::widgets::Wrap { trim: true });
-    
+
     // Inner area for content
     let inner_area = Rect {
         x: dialog_area.x + 1,
@@ -1694,7 +2038,7 @@ fn draw_batch_confirmation_dialog(f: &mut Frame, pids: &[u32], process_names: &[
         width: dialog_area.width.saturating_sub(2),
         height: dialog_area.height.saturating_sub(2),
     };
-    
+
     f.render_widget(dialog_paragraph, inner_area);
 }
 
@@ -1709,18 +2053,23 @@ fn draw_change_nice_menu(f: &mut Frame, app: &mut App, area: Rect) {
         ])
         .split(size);
     let title = Paragraph::new("Change Nice Value")
-        .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+        .style(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )
         .alignment(Alignment::Center)
-        .block(Block::default().borders(Borders::ALL).border_type(ratatui::widgets::BorderType::Thick));
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_type(ratatui::widgets::BorderType::Thick),
+        );
     f.render_widget(title, title_chunk[0]);
     let size = title_chunk[1];
     // Add a blank line below the title for spacing
     let spacing_chunk = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(1),
-            Constraint::Min(1),
-        ])
+        .constraints([Constraint::Length(1), Constraint::Min(1)])
         .split(size);
     let size = spacing_chunk[1];
 
@@ -1742,10 +2091,15 @@ fn draw_change_nice_menu(f: &mut Frame, app: &mut App, area: Rect) {
         app.process_manager.get_filtered_processes()
     } else {
         app.process_manager.get_processes()
-    };    let headers = ["PID", "NAME", "NICE", "CPU%", "USER"];
-    let header_cells = headers
-        .iter()
-        .map(|h| Cell::from(*h).style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD)));
+    };
+    let headers = ["PID", "NAME", "NICE", "CPU%", "USER"];
+    let header_cells = headers.iter().map(|h| {
+        Cell::from(*h).style(
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        )
+    });
     let header = Row::new(header_cells)
         .style(Style::default().bg(Color::Blue))
         .height(1);
@@ -1759,7 +2113,10 @@ fn draw_change_nice_menu(f: &mut Frame, app: &mut App, area: Rect) {
             let idx = app.change_nice_scroll_offset + i;
             let highlight = idx == app.selected_process_index;
             let style = if highlight {
-                Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD)
             } else if i % 2 == 0 {
                 Style::default().fg(Color::Cyan)
             } else {
@@ -1770,20 +2127,26 @@ fn draw_change_nice_menu(f: &mut Frame, app: &mut App, area: Rect) {
                 Cell::from(process.name.clone()).style(Style::default().fg(Color::Green)),
                 Cell::from(process.nice.to_string()).style(Style::default().fg(Color::Yellow)),
                 Cell::from(format!("{:.1}%", process.cpu_usage)).style(style),
-                Cell::from(process.user.clone().unwrap_or_default()).style(Style::default().fg(Color::Magenta)),
+                Cell::from(process.user.clone().unwrap_or_default())
+                    .style(Style::default().fg(Color::Magenta)),
             ])
         })
         .collect::<Vec<_>>();
 
     let process_table = Table::new(visible_processes)
         .header(header)
-        .block(Block::default().borders(Borders::ALL).title("Processes (↑↓ to move, Enter to select)").style(Style::default().fg(Color::Black)))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Processes (↑↓ to move, Enter to select)")
+                .style(Style::default().fg(Color::Black)),
+        )
         .widths(&[
-            Constraint::Length(8),   // PID
-            Constraint::Length(20),  // NAME
-            Constraint::Length(8),   // NICE
-            Constraint::Length(8),   // CPU%
-            Constraint::Length(12),  // USER
+            Constraint::Length(8),  // PID
+            Constraint::Length(20), // NAME
+            Constraint::Length(8),  // NICE
+            Constraint::Length(8),  // CPU%
+            Constraint::Length(12), // USER
         ]);
     f.render_widget(process_table, chunks[0]);
 
@@ -1798,21 +2161,35 @@ fn draw_change_nice_menu(f: &mut Frame, app: &mut App, area: Rect) {
         .split(chunks[1]);
 
     // Process details
-    let selected = app.selected_process_index.min(processes.len().saturating_sub(1));
+    let selected = app
+        .selected_process_index
+        .min(processes.len().saturating_sub(1));
     let proc = processes.get(selected);
     let details = if let Some(proc) = proc {
         vec![
-            Line::from(vec![Span::styled("Selected Process:", Style::default().fg(Color::Black).add_modifier(Modifier::BOLD))]),
+            Line::from(vec![Span::styled(
+                "Selected Process:",
+                Style::default()
+                    .fg(Color::Black)
+                    .add_modifier(Modifier::BOLD),
+            )]),
             Line::from(vec![Span::raw(format!("PID: {}", proc.pid))]),
             Line::from(vec![Span::raw(format!("Name: {}", proc.name))]),
-            Line::from(vec![Span::raw(format!("User: {}", proc.user.clone().unwrap_or_default()))]),
+            Line::from(vec![Span::raw(format!(
+                "User: {}",
+                proc.user.clone().unwrap_or_default()
+            ))]),
             Line::from(vec![Span::raw(format!("Current Nice: {}", proc.nice))]),
         ]
     } else {
         vec![Line::from("No process selected.")]
     };
-    let details_box = Paragraph::new(details)
-        .block(Block::default().borders(Borders::ALL).title("Details").style(Style::default().fg(Color::Black)));
+    let details_box = Paragraph::new(details).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title("Details")
+            .style(Style::default().fg(Color::Black)),
+    );
     f.render_widget(details_box, right_chunks[0]);
 
     // Input box for nice value
@@ -1833,29 +2210,49 @@ fn draw_change_nice_menu(f: &mut Frame, app: &mut App, area: Rect) {
     } else {
         Style::default().fg(Color::Black)
     };
-    let input_box = Paragraph::new(input_text)
-        .style(input_style)
-        .block(Block::default().borders(Borders::ALL).title("Nice Value Input").style(Style::default().fg(Color::Black)));
+    let input_box = Paragraph::new(input_text).style(input_style).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title("Nice Value Input")
+            .style(Style::default().fg(Color::Black)),
+    );
     f.render_widget(input_box, right_chunks[1]);
 
     // Instructions and status
     let mut info = vec![
         Line::from(vec![Span::styled(
-            "Instructions:", Style::default().fg(Color::Black).add_modifier(Modifier::BOLD)
+            "Instructions:",
+            Style::default()
+                .fg(Color::Black)
+                .add_modifier(Modifier::BOLD),
         )]),
-        Line::from(vec![Span::raw("- Use ↑/↓ to move selection in the process list.")]),
-        Line::from(vec![Span::raw("- Press Enter to select a process and input a new nice value.")]),
-        Line::from(vec![Span::raw("- Type the new nice value, then Enter to apply." )]),
+        Line::from(vec![Span::raw(
+            "- Use ↑/↓ to move selection in the process list.",
+        )]),
+        Line::from(vec![Span::raw(
+            "- Press Enter to select a process and input a new nice value.",
+        )]),
+        Line::from(vec![Span::raw(
+            "- Type the new nice value, then Enter to apply.",
+        )]),
         Line::from(vec![Span::raw("- Press Esc to cancel and return.")]),
     ];
     if let Some((msg, is_error)) = &app.input_state.message {
         info.push(Line::from(vec![Span::styled(
             msg,
-            if *is_error { Style::default().fg(Color::Red) } else { Style::default().fg(Color::Green) }
+            if *is_error {
+                Style::default().fg(Color::Red)
+            } else {
+                Style::default().fg(Color::Green)
+            },
         )]));
     }
-    let info_box = Paragraph::new(info)
-        .block(Block::default().borders(Borders::ALL).title("Help & Status").style(Style::default().fg(Color::Black)));
+    let info_box = Paragraph::new(info).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title("Help & Status")
+            .style(Style::default().fg(Color::Black)),
+    );
     f.render_widget(info_box, right_chunks[2]);
 }
 
@@ -1871,7 +2268,8 @@ fn draw_rule_input(f: &mut Frame, app: &App, area: Rect) {
     let input = Paragraph::new(app.input_state.rule_input.as_str())
         .block(
             Block::default()
-                .title("Enter Rule (e.g., cpu > 5.0 && mem < 1000)").style(Style::default().fg(Color::Black))
+                .title("Enter Rule (e.g., cpu > 5.0 && mem < 1000)")
+                .style(Style::default().fg(Color::Black))
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded)
                 .style(Style::default().fg(Color::Black)),
@@ -1883,7 +2281,9 @@ fn draw_rule_input(f: &mut Frame, app: &App, area: Rect) {
 
 fn get_status_style(status: &str) -> Style {
     match status.trim().to_lowercase().as_str() {
-        "running" | "run" | "waking" => Style::default().fg(Color::Black).add_modifier(Modifier::BOLD),
+        "running" | "run" | "waking" => Style::default()
+            .fg(Color::Black)
+            .add_modifier(Modifier::BOLD),
         "sleeping" | "idle" | "parked" => Style::default().fg(Color::Blue),
         "disk sleep" => Style::default().fg(Color::Magenta),
         "stopped" | "tracing stop" => Style::default().fg(Color::Yellow),
@@ -1948,7 +2348,7 @@ fn handle_events(app: &mut App) -> Result<bool, Box<dyn Error>> {
                 }
                 ViewMode::RuleInput => {
                     if handle_script_input(key, app)? {
-                    return Ok(true);
+                        return Ok(true);
                     }
                 }
                 ViewMode::ProcessLog => {
@@ -2017,7 +2417,6 @@ fn handle_events(app: &mut App) -> Result<bool, Box<dyn Error>> {
                     }
                 }
 
-
                 ViewMode::MultiHost => {
                     if handle_multi_host_input(key, app)? {
                         return Ok(true);
@@ -2046,7 +2445,7 @@ fn handle_process_list_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<d
             if let Some(mode) = &app.sort_mode {
                 app.process_manager.set_sort(mode, app.sort_ascending);
             }
-        }        
+        }
         KeyCode::Char('q') => return Ok(true),
         KeyCode::Char('s') | KeyCode::Char('S') => app.view_mode = ViewMode::Statistics,
         KeyCode::Up => {
@@ -2080,7 +2479,7 @@ fn handle_process_list_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<d
                 // Otherwise start selecting a PID
                 app.kill_stop_input_state = KillStopInputState::SelectingPid;
             }
-        },
+        }
         KeyCode::Char('4') => {
             app.view_mode = ViewMode::PerProcessGraph;
             app.selected_process_index = 0;
@@ -2094,12 +2493,12 @@ fn handle_process_list_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<d
             app.grouped_view_type = crate::process_group::GroupType::Cgroup;
             app.selected_group_index = 0;
             app.grouped_view_scroll_offset = 0;
-        },
+        }
         KeyCode::Char('j') | KeyCode::Char('J') => {
             app.view_mode = ViewMode::Scheduler;
             app.selected_task_index = 0;
             app.scheduler_scroll_offset = 0;
-        },
+        }
         KeyCode::Char('n') | KeyCode::Char('N') => {
             app.view_mode = ViewMode::StartProcess;
             app.input_state.program_path.clear();
@@ -2107,28 +2506,28 @@ fn handle_process_list_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<d
             app.input_state.arguments.clear();
             app.input_state.env_vars.clear();
             app.input_state.current_start_input_field = 0;
-        },
+        }
         KeyCode::Char('p') | KeyCode::Char('P') => {
             app.view_mode = ViewMode::ProfileManagement;
             app.selected_profile_index = 0;
             app.profile_scroll_offset = 0;
-        },
+        }
         KeyCode::Char('A') => {
             app.view_mode = ViewMode::AlertManagement;
             app.selected_alert_index = 0;
             app.alert_scroll_offset = 0;
-        },
+        }
         KeyCode::Char('c') | KeyCode::Char('C') => {
             app.view_mode = ViewMode::CheckpointManagement;
             app.selected_checkpoint_index = 0;
             app.checkpoint_scroll_offset = 0;
-        },
+        }
         KeyCode::Char('h') | KeyCode::Char('H') => {
             app.view_mode = ViewMode::HostManagement;
             app.selected_host_index = 0;
             app.host_scroll_offset = 0;
             app.host_input.clear();
-        },
+        }
         KeyCode::Char('m') | KeyCode::Char('M') => {
             // Toggle multi-select mode
             app.multi_select_mode = !app.multi_select_mode;
@@ -2136,7 +2535,7 @@ fn handle_process_list_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<d
                 // Clear selections when exiting multi-select mode
                 app.selected_processes.clear();
             }
-        },
+        }
         KeyCode::Char(' ') | KeyCode::Enter => {
             // Toggle selection of current process in multi-select mode
             if app.multi_select_mode {
@@ -2149,7 +2548,7 @@ fn handle_process_list_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<d
                     }
                 }
             }
-        },
+        }
         _ => {}
     }
     Ok(false)
@@ -2159,40 +2558,40 @@ fn handle_statistics_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<dyn
     match key.code {
         KeyCode::Char('q') | KeyCode::Esc | KeyCode::Char('s') | KeyCode::Char('S') => {
             app.view_mode = ViewMode::ProcessList;
-            app.stats_scroll_offset = 0;  // Reset scroll when leaving statistics view
-            app.current_stats_tab = StatisticsTab::Graphs;  // Reset to default tab
+            app.stats_scroll_offset = 0; // Reset scroll when leaving statistics view
+            app.current_stats_tab = StatisticsTab::Graphs; // Reset to default tab
         }
         KeyCode::Char('1') => {
             app.current_stats_tab = StatisticsTab::Graphs;
-            app.stats_scroll_offset = 0;  // Reset scroll when switching tabs
+            app.stats_scroll_offset = 0; // Reset scroll when switching tabs
         }
         KeyCode::Char('2') => {
             app.current_stats_tab = StatisticsTab::Overview;
-            app.stats_scroll_offset = 0;  // Reset scroll when switching tabs
+            app.stats_scroll_offset = 0; // Reset scroll when switching tabs
         }
         KeyCode::Char('3') => {
             app.current_stats_tab = StatisticsTab::CPU;
-            app.stats_scroll_offset = 0;  // Reset scroll when switching tabs
+            app.stats_scroll_offset = 0; // Reset scroll when switching tabs
         }
         KeyCode::Char('4') => {
             app.current_stats_tab = StatisticsTab::Memory;
-            app.stats_scroll_offset = 0;  // Reset scroll when switching tabs
+            app.stats_scroll_offset = 0; // Reset scroll when switching tabs
         }
         KeyCode::Char('5') => {
             app.current_stats_tab = StatisticsTab::Disk;
-            app.stats_scroll_offset = 0;  // Reset scroll when switching tabs
+            app.stats_scroll_offset = 0; // Reset scroll when switching tabs
         }
         KeyCode::Char('6') => {
             app.current_stats_tab = StatisticsTab::Processes;
-            app.stats_scroll_offset = 0;  // Reset scroll when switching tabs
+            app.stats_scroll_offset = 0; // Reset scroll when switching tabs
         }
         KeyCode::Char('7') => {
             app.current_stats_tab = StatisticsTab::Advanced;
-            app.stats_scroll_offset = 0;  // Reset scroll when switching tabs
+            app.stats_scroll_offset = 0; // Reset scroll when switching tabs
         }
         KeyCode::Char('8') => {
             app.current_stats_tab = StatisticsTab::Help;
-            app.stats_scroll_offset = 0;  // Reset scroll when switching tabs
+            app.stats_scroll_offset = 0; // Reset scroll when switching tabs
         }
         KeyCode::Up => {
             if app.current_stats_tab == StatisticsTab::CPU {
@@ -2220,7 +2619,7 @@ fn handle_statistics_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<dyn
                 // Page down - move by half the viewport
                 let scroll_amount = 10;
                 app.stats_scroll_offset = app.stats_scroll_offset.saturating_add(scroll_amount);
-        }
+            }
         }
         KeyCode::Home => {
             if app.current_stats_tab == StatisticsTab::CPU {
@@ -2251,7 +2650,7 @@ fn handle_filter_sort_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<dy
             app.input_state.rule_input.clear();
             app.view_mode = ViewMode::RuleInput;
         }
-        
+
         KeyCode::Backspace | KeyCode::Esc => app.view_mode = ViewMode::ProcessList,
         _ => {}
     }
@@ -2304,40 +2703,38 @@ fn handle_sort_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<dyn Error
 
 fn handle_filter_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<dyn Error>> {
     match app.view_mode {
-        ViewMode::Filter => {
-            match key.code {
-                KeyCode::Char('1') => {
-                    app.filter_mode = Some("user".to_string());
-                    app.input_state.filter_input.clear();
-                    app.view_mode = ViewMode::FilterInput;
-                }
-                KeyCode::Char('2') => {
-                    app.filter_mode = Some("name".to_string());
-                    app.input_state.filter_input.clear();
-                    app.view_mode = ViewMode::FilterInput;
-                }
-                KeyCode::Char('3') => {
-                    app.filter_mode = Some("pid".to_string());
-                    app.input_state.filter_input.clear();
-                    app.view_mode = ViewMode::FilterInput;
-                }
-                KeyCode::Char('4') => {
-                    app.filter_mode = Some("ppid".to_string());
-                    app.input_state.filter_input.clear();
-                    app.view_mode = ViewMode::FilterInput;
-                }
-                KeyCode::Esc => {
-                    app.filter_mode = None;
-                    app.input_state.filter_input.clear();
-                    app.process_manager.set_filter(None, None);
-                    app.view_mode = ViewMode::ProcessList;
-                }
-                KeyCode::Backspace | KeyCode::Left => {
-                    app.view_mode = ViewMode::FilterSort;
-                }
-                _ => {}
+        ViewMode::Filter => match key.code {
+            KeyCode::Char('1') => {
+                app.filter_mode = Some("user".to_string());
+                app.input_state.filter_input.clear();
+                app.view_mode = ViewMode::FilterInput;
             }
-        }
+            KeyCode::Char('2') => {
+                app.filter_mode = Some("name".to_string());
+                app.input_state.filter_input.clear();
+                app.view_mode = ViewMode::FilterInput;
+            }
+            KeyCode::Char('3') => {
+                app.filter_mode = Some("pid".to_string());
+                app.input_state.filter_input.clear();
+                app.view_mode = ViewMode::FilterInput;
+            }
+            KeyCode::Char('4') => {
+                app.filter_mode = Some("ppid".to_string());
+                app.input_state.filter_input.clear();
+                app.view_mode = ViewMode::FilterInput;
+            }
+            KeyCode::Esc => {
+                app.filter_mode = None;
+                app.input_state.filter_input.clear();
+                app.process_manager.set_filter(None, None);
+                app.view_mode = ViewMode::ProcessList;
+            }
+            KeyCode::Backspace | KeyCode::Left => {
+                app.view_mode = ViewMode::FilterSort;
+            }
+            _ => {}
+        },
         ViewMode::FilterInput => {
             match key.code {
                 KeyCode::Char(c) => {
@@ -2355,7 +2752,7 @@ fn handle_filter_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<dyn Err
                     if !app.input_state.filter_input.is_empty() {
                         app.process_manager.set_filter(
                             app.filter_mode.clone(),
-                            Some(app.input_state.filter_input.clone())
+                            Some(app.input_state.filter_input.clone()),
                         );
                         app.view_mode = ViewMode::ProcessList;
                     }
@@ -2381,43 +2778,44 @@ fn handle_filter_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<dyn Err
 fn handle_kill_stop_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<dyn Error>> {
     let processes = app.process_manager.get_processes();
     match &mut app.kill_stop_input_state {
-        KillStopInputState::SelectingPid => {
-            match key.code {
-                KeyCode::Up => {
-                    if app.selected_process_index > 0 {
-                        app.selected_process_index -= 1;
-                        if app.selected_process_index < app.scroll_offset {
-                            app.scroll_offset = app.selected_process_index;
-                        }
+        KillStopInputState::SelectingPid => match key.code {
+            KeyCode::Up => {
+                if app.selected_process_index > 0 {
+                    app.selected_process_index -= 1;
+                    if app.selected_process_index < app.scroll_offset {
+                        app.scroll_offset = app.selected_process_index;
                     }
                 }
-                KeyCode::Down => {
-                    if app.selected_process_index + 1 < processes.len() {
-                        app.selected_process_index += 1;
-                        let bottom = app.scroll_offset + app.display_limit;
-                        if app.selected_process_index >= bottom {
-                            app.scroll_offset = app.selected_process_index - app.display_limit + 1;
-                        }
-                    }
-                }
-                KeyCode::Enter => {
-                    if !processes.is_empty() {
-                        app.kill_stop_input_state = KillStopInputState::EnteringAction;
-                        app.input_state.pid_input.clear();
-                        app.input_state.message = None;
-                    }
-                }
-                KeyCode::Esc => {
-                    app.view_mode = ViewMode::ProcessList;
-                    app.input_state = InputState::default();
-                    app.kill_stop_input_state = KillStopInputState::SelectingPid;
-                }
-                _ => {}
             }
-        }
+            KeyCode::Down => {
+                if app.selected_process_index + 1 < processes.len() {
+                    app.selected_process_index += 1;
+                    let bottom = app.scroll_offset + app.display_limit;
+                    if app.selected_process_index >= bottom {
+                        app.scroll_offset = app.selected_process_index - app.display_limit + 1;
+                    }
+                }
+            }
+            KeyCode::Enter => {
+                if !processes.is_empty() {
+                    app.kill_stop_input_state = KillStopInputState::EnteringAction;
+                    app.input_state.pid_input.clear();
+                    app.input_state.message = None;
+                }
+            }
+            KeyCode::Esc => {
+                app.view_mode = ViewMode::ProcessList;
+                app.input_state = InputState::default();
+                app.kill_stop_input_state = KillStopInputState::SelectingPid;
+            }
+            _ => {}
+        },
         KillStopInputState::EnteringAction => {
             match key.code {
-                KeyCode::Char('k') | KeyCode::Char('s') | KeyCode::Char('c') | KeyCode::Char('t') => {
+                KeyCode::Char('k')
+                | KeyCode::Char('s')
+                | KeyCode::Char('c')
+                | KeyCode::Char('t') => {
                     let (action_type, _action_name) = match key.code {
                         KeyCode::Char('k') => ("kill", "Kill process"),
                         KeyCode::Char('s') => ("stop", "Stop process"),
@@ -2425,13 +2823,18 @@ fn handle_kill_stop_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<dyn 
                         KeyCode::Char('t') => ("terminate", "Terminate process"),
                         _ => return Ok(false),
                     };
-                    
+
                     // Check if we have selected processes for batch operation
                     if !app.selected_processes.is_empty() {
-                        let selected_pids: Vec<u32> = app.selected_processes.iter().copied().collect();
-                        let selected_names: Vec<String> = selected_pids.iter()
+                        let selected_pids: Vec<u32> =
+                            app.selected_processes.iter().copied().collect();
+                        let selected_names: Vec<String> = selected_pids
+                            .iter()
                             .filter_map(|&pid| {
-                                processes.iter().find(|p| p.pid == pid).map(|p| p.name.clone())
+                                processes
+                                    .iter()
+                                    .find(|p| p.pid == pid)
+                                    .map(|p| p.name.clone())
                             })
                             .collect();
                         app.kill_stop_input_state = KillStopInputState::ConfirmingBatchAction {
@@ -2443,11 +2846,12 @@ fn handle_kill_stop_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<dyn 
                         // Single process operation
                         // Check for child processes (only for kill/terminate actions)
                         let children = app.process_manager.get_child_processes(process.pid);
-                        if !children.is_empty() && (action_type == "kill" || action_type == "terminate") {
+                        if !children.is_empty()
+                            && (action_type == "kill" || action_type == "terminate")
+                        {
                             // Show dependency warning
-                            let children_list: Vec<(u32, String)> = children.iter()
-                                .map(|c| (c.pid, c.name.clone()))
-                                .collect();
+                            let children_list: Vec<(u32, String)> =
+                                children.iter().map(|c| (c.pid, c.name.clone())).collect();
                             app.kill_stop_input_state = KillStopInputState::DependencyWarning {
                                 pid: process.pid,
                                 process_name: process.name.clone(),
@@ -2472,7 +2876,13 @@ fn handle_kill_stop_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<dyn 
                 _ => {}
             }
         }
-        KillStopInputState::DependencyWarning { pid, process_name, action_type, child_count, children } => {
+        KillStopInputState::DependencyWarning {
+            pid,
+            process_name,
+            action_type,
+            child_count,
+            children,
+        } => {
             match key.code {
                 KeyCode::Char('p') | KeyCode::Char('1') => {
                     // Kill parent only - proceed to confirmation
@@ -2488,18 +2898,21 @@ fn handle_kill_stop_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<dyn 
                         match app.process_manager.kill_process_and_children(*pid) {
                             Ok(killed_pids) => {
                                 app.input_state.message = Some((
-                                    format!("Successfully killed {} processes (parent + {} children)", 
-                                        killed_pids.len(), child_count),
-                                    false
+                                    format!(
+                                        "Successfully killed {} processes (parent + {} children)",
+                                        killed_pids.len(),
+                                        child_count
+                                    ),
+                                    false,
                                 ));
-                                app.input_state.message_timeout = Some(std::time::Instant::now() + Duration::from_secs(2));
+                                app.input_state.message_timeout =
+                                    Some(std::time::Instant::now() + Duration::from_secs(2));
                             }
                             Err(e) => {
-                                app.input_state.message = Some((
-                                    format!("Error killing processes: {}", e),
-                                    true
-                                ));
-                                app.input_state.message_timeout = Some(std::time::Instant::now() + Duration::from_secs(2));
+                                app.input_state.message =
+                                    Some((format!("Error killing processes: {}", e), true));
+                                app.input_state.message_timeout =
+                                    Some(std::time::Instant::now() + Duration::from_secs(2));
                             }
                         }
                     } else {
@@ -2509,27 +2922,30 @@ fn handle_kill_stop_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<dyn 
                             if let Err(e) = app.process_manager.terminate_process(*child_pid) {
                                 app.input_state.message = Some((
                                     format!("Error terminating child process {}: {}", child_pid, e),
-                                    true
+                                    true,
                                 ));
-                                app.input_state.message_timeout = Some(std::time::Instant::now() + Duration::from_secs(2));
+                                app.input_state.message_timeout =
+                                    Some(std::time::Instant::now() + Duration::from_secs(2));
                                 app.kill_stop_input_state = KillStopInputState::SelectingPid;
                                 return Ok(false);
                             }
                             killed_pids.push(*child_pid);
                         }
                         if let Err(e) = app.process_manager.terminate_process(*pid) {
-                            app.input_state.message = Some((
-                                format!("Error terminating parent process: {}", e),
-                                true
-                            ));
+                            app.input_state.message =
+                                Some((format!("Error terminating parent process: {}", e), true));
                         } else {
                             app.input_state.message = Some((
-                                format!("Successfully terminated {} processes (parent + {} children)", 
-                                    killed_pids.len(), *child_count),
-                                false
+                                format!(
+                                    "Successfully terminated {} processes (parent + {} children)",
+                                    killed_pids.len(),
+                                    *child_count
+                                ),
+                                false,
                             ));
                         }
-                        app.input_state.message_timeout = Some(std::time::Instant::now() + Duration::from_secs(2));
+                        app.input_state.message_timeout =
+                            Some(std::time::Instant::now() + Duration::from_secs(2));
                     }
                     app.kill_stop_input_state = KillStopInputState::SelectingPid;
                 }
@@ -2540,46 +2956,45 @@ fn handle_kill_stop_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<dyn 
                 _ => {}
             }
         }
-        KillStopInputState::ConfirmingAction { pid, process_name: _, action_type } => {
+        KillStopInputState::ConfirmingAction {
+            pid,
+            process_name: _,
+            action_type,
+        } => {
             match key.code {
                 KeyCode::Char('y') | KeyCode::Enter => {
                     // User confirmed - execute the action
                     let action = match action_type.as_str() {
-                        "kill" => {
-                            match app.process_manager.kill_process(*pid) {
-                                Ok(_) => Some(("Successfully killed process".to_string(), false)),
-                                Err(e) => Some((format!("Error killing process: {}", e), true)),
+                        "kill" => match app.process_manager.kill_process(*pid) {
+                            Ok(_) => Some(("Successfully killed process".to_string(), false)),
+                            Err(e) => Some((format!("Error killing process: {}", e), true)),
+                        },
+                        "stop" => match app.process_manager.stop_process(*pid) {
+                            Ok(_) => Some(("Successfully stopped process".to_string(), false)),
+                            Err(e) => Some((format!("Error stopping process: {}", e), true)),
+                        },
+                        "continue" => match app.process_manager.continue_process(*pid) {
+                            Ok(_) => Some(("Successfully continued process".to_string(), false)),
+                            Err(e) => Some((format!("Error continuing process: {}", e), true)),
+                        },
+                        "terminate" => match app.process_manager.terminate_process(*pid) {
+                            Ok(_) => Some((
+                                "Successfully sent termination request to process".to_string(),
+                                false,
+                            )),
+                            Err(e) => {
+                                Some((format!("Error sending termination request: {}", e), true))
                             }
-                        }
-                        "stop" => {
-                            match app.process_manager.stop_process(*pid) {
-                                Ok(_) => Some(("Successfully stopped process".to_string(), false)),
-                                Err(e) => Some((format!("Error stopping process: {}", e), true)),
-                            }
-                        }
-                        "continue" => {
-                            match app.process_manager.continue_process(*pid) {
-                                Ok(_) => Some(("Successfully continued process".to_string(), false)),
-                                Err(e) => Some((format!("Error continuing process: {}", e), true)),
-                            }
-                        }
-                        "terminate" => {
-                            match app.process_manager.terminate_process(*pid) {
-                                Ok(_) => Some(("Successfully sent termination request to process".to_string(), false)),
-                                Err(e) => Some((format!("Error sending termination request: {}", e), true)),
-                            }
-                        }
+                        },
                         _ => None,
                     };
 
                     if let Some((msg, is_error)) = action {
-                        app.input_state.message = Some((
-                            format!("{} {}", msg, *pid),
-                            is_error
-                        ));
-                        app.input_state.message_timeout = Some(std::time::Instant::now() + Duration::from_secs(2));
+                        app.input_state.message = Some((format!("{} {}", msg, *pid), is_error));
+                        app.input_state.message_timeout =
+                            Some(std::time::Instant::now() + Duration::from_secs(2));
                     }
-                    
+
                     // Return to selecting PID
                     app.kill_stop_input_state = KillStopInputState::SelectingPid;
                 }
@@ -2590,13 +3005,17 @@ fn handle_kill_stop_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<dyn 
                 _ => {}
             }
         }
-        KillStopInputState::ConfirmingBatchAction { pids, process_names: _, action_type } => {
+        KillStopInputState::ConfirmingBatchAction {
+            pids,
+            process_names: _,
+            action_type,
+        } => {
             match key.code {
                 KeyCode::Char('y') | KeyCode::Enter => {
                     // Execute batch action
                     let mut success_count = 0;
                     let mut error_count = 0;
-                    
+
                     for pid in pids.iter() {
                         let result = match action_type.as_str() {
                             "kill" => app.process_manager.kill_process(*pid),
@@ -2605,19 +3024,23 @@ fn handle_kill_stop_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<dyn 
                             "continue" => app.process_manager.continue_process(*pid),
                             _ => continue,
                         };
-                        
+
                         if result.is_ok() {
                             success_count += 1;
                         } else {
                             error_count += 1;
                         }
                     }
-                    
+
                     app.input_state.message = Some((
-                        format!("Batch {}: {} succeeded, {} failed", action_type, success_count, error_count),
+                        format!(
+                            "Batch {}: {} succeeded, {} failed",
+                            action_type, success_count, error_count
+                        ),
                         error_count > 0,
                     ));
-                    app.input_state.message_timeout = Some(std::time::Instant::now() + Duration::from_secs(3));
+                    app.input_state.message_timeout =
+                        Some(std::time::Instant::now() + Duration::from_secs(3));
                     app.kill_stop_input_state = KillStopInputState::SelectingPid;
                     app.selected_processes.clear();
                 }
@@ -2635,94 +3058,92 @@ fn handle_kill_stop_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<dyn 
 fn handle_change_nice_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<dyn Error>> {
     let processes = app.process_manager.get_processes();
     match app.nice_input_state {
-        NiceInputState::SelectingPid => {
-            match key.code {
-                KeyCode::Up => {
-                    if app.selected_process_index > 0 {
-                        app.selected_process_index -= 1;
-                        if app.selected_process_index < app.change_nice_scroll_offset {
-                            app.change_nice_scroll_offset = app.selected_process_index;
-                        }
+        NiceInputState::SelectingPid => match key.code {
+            KeyCode::Up => {
+                if app.selected_process_index > 0 {
+                    app.selected_process_index -= 1;
+                    if app.selected_process_index < app.change_nice_scroll_offset {
+                        app.change_nice_scroll_offset = app.selected_process_index;
                     }
                 }
-                KeyCode::Down => {
-                    if app.selected_process_index + 1 < processes.len() {
-                        app.selected_process_index += 1;
-                        let bottom = app.change_nice_scroll_offset + (PROCESS_TABLE_HEIGHT - 2);
-                        if app.selected_process_index >= bottom {
-                            app.change_nice_scroll_offset += 1;
-                        }
-                    }
-                }
-                KeyCode::Enter => {
-                    if !processes.is_empty() {
-                        app.nice_input_state = NiceInputState::EnteringNice;
-                        app.input_state.nice_input.clear();
-                        app.input_state.message = None;
-                    }
-                }
-                KeyCode::Esc => {
-                    app.view_mode = ViewMode::ProcessList;
-                    app.input_state = InputState::default();
-                    app.nice_input_state = NiceInputState::SelectingPid;
-                }
-                _ => {}
             }
-        }
-        NiceInputState::EnteringNice => {
-            match key.code {
-                KeyCode::Char(c) => {
-                    if c.is_ascii_digit() || (c == '-' && app.input_state.nice_input.is_empty()) {
-                        app.input_state.nice_input.push(c);
+            KeyCode::Down => {
+                if app.selected_process_index + 1 < processes.len() {
+                    app.selected_process_index += 1;
+                    let bottom = app.change_nice_scroll_offset + (PROCESS_TABLE_HEIGHT - 2);
+                    if app.selected_process_index >= bottom {
+                        app.change_nice_scroll_offset += 1;
                     }
                 }
-                KeyCode::Backspace => {
-                    app.input_state.nice_input.pop();
-                }
-                KeyCode::Enter => {
-                    if !app.input_state.nice_input.is_empty() {
-                        if let (Some(proc), Ok(nice)) = (
-                            processes.get(app.selected_process_index),
-                            app.input_state.nice_input.parse::<i32>(),
-                        ) {
-                            if nice >= -20 && nice <= 19 {
-                                match app.process_manager.set_niceness(proc.pid, nice) {
-                                    Ok(_) => {
-                                        app.input_state.message = Some((
-                                            format!("Successfully changed nice value of process {} to {}", proc.pid, nice),
-                                            false
-                                        ));
-                                        app.input_state.message_timeout = Some(std::time::Instant::now() + Duration::from_secs(1));
-                                        app.nice_input_state = NiceInputState::SelectingPid;
-                                        app.input_state.nice_input.clear();
-                                    }
-                                    Err(e) => {
-                                        app.input_state.message = Some((
-                                            format!("Error changing nice value: {}", e),
-                                            true
-                                        ));
-                                        app.nice_input_state = NiceInputState::SelectingPid;
-                                        app.input_state.nice_input.clear();
-                                    }
-                                }
-                            } else {
-                                app.input_state.message = Some((
-                                    "Error: Nice value must be between -20 and 19".to_string(),
-                                    true
-                                ));
-                                app.nice_input_state = NiceInputState::SelectingPid;
-                                app.input_state.nice_input.clear();
-                            }
-                        }
-                    }
-                }
-                KeyCode::Esc => {
-                    app.nice_input_state = NiceInputState::SelectingPid;
+            }
+            KeyCode::Enter => {
+                if !processes.is_empty() {
+                    app.nice_input_state = NiceInputState::EnteringNice;
                     app.input_state.nice_input.clear();
+                    app.input_state.message = None;
                 }
-                _ => {}
             }
-        }
+            KeyCode::Esc => {
+                app.view_mode = ViewMode::ProcessList;
+                app.input_state = InputState::default();
+                app.nice_input_state = NiceInputState::SelectingPid;
+            }
+            _ => {}
+        },
+        NiceInputState::EnteringNice => match key.code {
+            KeyCode::Char(c) => {
+                if c.is_ascii_digit() || (c == '-' && app.input_state.nice_input.is_empty()) {
+                    app.input_state.nice_input.push(c);
+                }
+            }
+            KeyCode::Backspace => {
+                app.input_state.nice_input.pop();
+            }
+            KeyCode::Enter => {
+                if !app.input_state.nice_input.is_empty() {
+                    if let (Some(proc), Ok(nice)) = (
+                        processes.get(app.selected_process_index),
+                        app.input_state.nice_input.parse::<i32>(),
+                    ) {
+                        if nice >= -20 && nice <= 19 {
+                            match app.process_manager.set_niceness(proc.pid, nice) {
+                                Ok(_) => {
+                                    app.input_state.message = Some((
+                                        format!(
+                                            "Successfully changed nice value of process {} to {}",
+                                            proc.pid, nice
+                                        ),
+                                        false,
+                                    ));
+                                    app.input_state.message_timeout =
+                                        Some(std::time::Instant::now() + Duration::from_secs(1));
+                                    app.nice_input_state = NiceInputState::SelectingPid;
+                                    app.input_state.nice_input.clear();
+                                }
+                                Err(e) => {
+                                    app.input_state.message =
+                                        Some((format!("Error changing nice value: {}", e), true));
+                                    app.nice_input_state = NiceInputState::SelectingPid;
+                                    app.input_state.nice_input.clear();
+                                }
+                            }
+                        } else {
+                            app.input_state.message = Some((
+                                "Error: Nice value must be between -20 and 19".to_string(),
+                                true,
+                            ));
+                            app.nice_input_state = NiceInputState::SelectingPid;
+                            app.input_state.nice_input.clear();
+                        }
+                    }
+                }
+            }
+            KeyCode::Esc => {
+                app.nice_input_state = NiceInputState::SelectingPid;
+                app.input_state.nice_input.clear();
+            }
+            _ => {}
+        },
     }
     Ok(false)
 }
@@ -2777,8 +3198,11 @@ fn handle_per_process_graph_input(key: KeyEvent, app: &mut App) -> Result<bool, 
                 let max_index = processes.len().saturating_sub(1);
                 if app.selected_process_index < max_index {
                     app.selected_process_index += 1;
-                    if app.selected_process_index >= app.per_process_graph_scroll_offset + PROCESS_TABLE_HEIGHT - 2 {
-                        app.per_process_graph_scroll_offset = app.selected_process_index - (PROCESS_TABLE_HEIGHT - 3);
+                    if app.selected_process_index
+                        >= app.per_process_graph_scroll_offset + PROCESS_TABLE_HEIGHT - 2
+                    {
+                        app.per_process_graph_scroll_offset =
+                            app.selected_process_index - (PROCESS_TABLE_HEIGHT - 3);
                     }
                 }
             }
@@ -2826,23 +3250,30 @@ fn handle_script_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<dyn Err
     Ok(false)
 }
 
-
 fn render_per_process_graph_tab(frame: &mut ratatui::Frame, area: Rect, app: &App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),  // Title
-            Constraint::Length(5),  // Process info
-            Constraint::Min(0),     // Content
-            Constraint::Length(2),  // Help line
+            Constraint::Length(3), // Title
+            Constraint::Length(5), // Process info
+            Constraint::Min(0),    // Content
+            Constraint::Length(2), // Help line
         ])
         .split(area);
 
     // Title
     let title = Paragraph::new("Per-Process Graph View")
-        .style(Style::default().fg(Color::Black).add_modifier(Modifier::BOLD))
+        .style(
+            Style::default()
+                .fg(Color::Black)
+                .add_modifier(Modifier::BOLD),
+        )
         .alignment(Alignment::Center)
-        .block(Block::default().borders(Borders::ALL).style(Style::default().fg(Color::Black)));
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .style(Style::default().fg(Color::Black)),
+        );
     frame.render_widget(title, chunks[0]);
 
     if let Some(pid) = app.selected_process_for_graph {
@@ -2850,21 +3281,51 @@ fn render_per_process_graph_tab(frame: &mut ratatui::Frame, area: Rect, app: &Ap
         if let Some(process) = processes.iter().find(|p| p.pid == pid) {
             // Process info box
             let info_lines = vec![
-                Line::from(vec![Span::styled(format!("Name: {}", process.name), Style::default().fg(Color::Green))]),
-                Line::from(vec![Span::styled(format!("PID: {}", process.pid), Style::default().fg(Color::Yellow)), Span::raw("  "), Span::styled(format!("User: {}", process.user.clone().unwrap_or_default()), Style::default().fg(Color::Magenta))]),
-                Line::from(vec![Span::styled(format!("PPID: {}", process.parent_pid.unwrap_or(0)), Style::default().fg(Color::Cyan)), Span::raw("  "), Span::styled(format!("Status: {}", process.status), Style::default().fg(Color::Black))]),
-                Line::from(vec![Span::styled(format!("Start: {}", process.start_time_str), Style::default().fg(Color::Black))]),
+                Line::from(vec![Span::styled(
+                    format!("Name: {}", process.name),
+                    Style::default().fg(Color::Green),
+                )]),
+                Line::from(vec![
+                    Span::styled(
+                        format!("PID: {}", process.pid),
+                        Style::default().fg(Color::Yellow),
+                    ),
+                    Span::raw("  "),
+                    Span::styled(
+                        format!("User: {}", process.user.clone().unwrap_or_default()),
+                        Style::default().fg(Color::Magenta),
+                    ),
+                ]),
+                Line::from(vec![
+                    Span::styled(
+                        format!("PPID: {}", process.parent_pid.unwrap_or(0)),
+                        Style::default().fg(Color::Cyan),
+                    ),
+                    Span::raw("  "),
+                    Span::styled(
+                        format!("Status: {}", process.status),
+                        Style::default().fg(Color::Black),
+                    ),
+                ]),
+                Line::from(vec![Span::styled(
+                    format!("Start: {}", process.start_time_str),
+                    Style::default().fg(Color::Black),
+                )]),
             ];
-            let info_box = Paragraph::new(info_lines)
-                .block(Block::default().borders(Borders::ALL).title("Process Info").style(Style::default().fg(Color::Black)));
+            let info_box = Paragraph::new(info_lines).block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("Process Info")
+                    .style(Style::default().fg(Color::Black)),
+            );
             frame.render_widget(info_box, chunks[1]);
 
             // Graphs
             let graph_chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
-                    Constraint::Percentage(50),  // CPU Graph
-                    Constraint::Percentage(50),  // Memory Graph
+                    Constraint::Percentage(50), // CPU Graph
+                    Constraint::Percentage(50), // Memory Graph
                 ])
                 .split(chunks[2]);
 
@@ -2872,12 +3333,18 @@ fn render_per_process_graph_tab(frame: &mut ratatui::Frame, area: Rect, app: &Ap
                 // Live stats for CPU
                 let current_cpu = cpu_history.back().copied().unwrap_or(0.0);
                 let min_cpu = cpu_history.iter().cloned().fold(f32::INFINITY, f32::min);
-                let max_cpu = cpu_history.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+                let max_cpu = cpu_history
+                    .iter()
+                    .cloned()
+                    .fold(f32::NEG_INFINITY, f32::max);
                 let avg_cpu = if !cpu_history.is_empty() {
                     cpu_history.iter().sum::<f32>() / cpu_history.len() as f32
-                } else { 0.0 };
+                } else {
+                    0.0
+                };
                 // CPU Graph
-                let cpu_data: Vec<(f64, f64)> = cpu_history.iter()
+                let cpu_data: Vec<(f64, f64)> = cpu_history
+                    .iter()
                     .enumerate()
                     .map(|(i, &usage)| (i as f64, usage as f64))
                     .collect();
@@ -2901,17 +3368,26 @@ fn render_per_process_graph_tab(frame: &mut ratatui::Frame, area: Rect, app: &Ap
                 frame.render_widget(cpu_chart, graph_chunks[0]);
 
                 // Live stats for MEM
-                let current_mem = mem_history.back().copied().unwrap_or(0) as f64 / (1024.0 * 1024.0);
-                let min_mem = mem_history.iter().cloned().min().unwrap_or(0) as f64 / (1024.0 * 1024.0);
-                let max_mem = mem_history.iter().cloned().max().unwrap_or(0) as f64 / (1024.0 * 1024.0);
+                let current_mem =
+                    mem_history.back().copied().unwrap_or(0) as f64 / (1024.0 * 1024.0);
+                let min_mem =
+                    mem_history.iter().cloned().min().unwrap_or(0) as f64 / (1024.0 * 1024.0);
+                let max_mem =
+                    mem_history.iter().cloned().max().unwrap_or(0) as f64 / (1024.0 * 1024.0);
                 let avg_mem = if !mem_history.is_empty() {
-                    mem_history.iter().sum::<u64>() as f64 / mem_history.len() as f64 / (1024.0 * 1024.0)
-                } else { 0.0 };
-                let memory_data: Vec<(f64, f64)> = mem_history.iter()
+                    mem_history.iter().sum::<u64>() as f64
+                        / mem_history.len() as f64
+                        / (1024.0 * 1024.0)
+                } else {
+                    0.0
+                };
+                let memory_data: Vec<(f64, f64)> = mem_history
+                    .iter()
                     .enumerate()
                     .map(|(i, &usage)| (i as f64, usage as f64 / (1024.0 * 1024.0)))
                     .collect();
-                let max_memory = memory_data.iter()
+                let max_memory = memory_data
+                    .iter()
                     .map(|&(_, y)| y)
                     .fold(0.0, f64::max)
                     .max(1.0);
@@ -2940,18 +3416,24 @@ fn render_per_process_graph_tab(frame: &mut ratatui::Frame, area: Rect, app: &Ap
             }
         }
         // Help line
-        let help = Paragraph::new("←/→: Next/Prev process  ↑/↓: Back to list  Enter: Select  Esc: Back  Q: Quit")
-            .style(Style::default().fg(Color::Black))
-            .alignment(Alignment::Center)
-            .block(Block::default().borders(Borders::ALL));
+        let help = Paragraph::new(
+            "←/→: Next/Prev process  ↑/↓: Back to list  Enter: Select  Esc: Back  Q: Quit",
+        )
+        .style(Style::default().fg(Color::Black))
+        .alignment(Alignment::Center)
+        .block(Block::default().borders(Borders::ALL));
         frame.render_widget(help, chunks[3]);
     } else {
         // Show process selection list
         let processes = app.process_manager.get_processes();
         let headers = ["PID", "NAME", "CPU%", "MEM(MB)", "USER"];
-        let header_cells = headers
-            .iter()
-            .map(|h| Cell::from(*h).style(Style::default().fg(Color::Black).add_modifier(Modifier::BOLD)));
+        let header_cells = headers.iter().map(|h| {
+            Cell::from(*h).style(
+                Style::default()
+                    .fg(Color::Black)
+                    .add_modifier(Modifier::BOLD),
+            )
+        });
         let header = Row::new(header_cells)
             .style(Style::default().bg(Color::Blue))
             .height(1);
@@ -2964,7 +3446,10 @@ fn render_per_process_graph_tab(frame: &mut ratatui::Frame, area: Rect, app: &Ap
                 let idx = app.per_process_graph_scroll_offset + i;
                 let highlight = idx == app.selected_process_index;
                 let style = if highlight {
-                    Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD)
                 } else if i % 2 == 0 {
                     Style::default().fg(Color::Cyan)
                 } else {
@@ -2976,19 +3461,25 @@ fn render_per_process_graph_tab(frame: &mut ratatui::Frame, area: Rect, app: &Ap
                     Cell::from(process.name.clone()).style(Style::default().fg(Color::Green)),
                     Cell::from(format!("{:.1}%", process.cpu_usage)).style(style),
                     Cell::from(format!("{}", memory_mb)).style(style),
-                    Cell::from(process.user.clone().unwrap_or_default()).style(Style::default().fg(Color::Magenta)),
+                    Cell::from(process.user.clone().unwrap_or_default())
+                        .style(Style::default().fg(Color::Magenta)),
                 ])
             })
             .collect();
         let table = Table::new(rows)
             .header(header)
-            .block(Block::default().borders(Borders::ALL).title("Select a Process (↑↓ to move, Enter to select, Esc to return)").style(Style::default().fg(Color::Black)))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("Select a Process (↑↓ to move, Enter to select, Esc to return)")
+                    .style(Style::default().fg(Color::Black)),
+            )
             .widths(&[
-                Constraint::Length(8),   // PID
-                Constraint::Length(20),  // NAME
-                Constraint::Length(8),   // CPU%
-                Constraint::Length(10),  // MEM(MB)
-                Constraint::Length(12),  // USER
+                Constraint::Length(8),  // PID
+                Constraint::Length(20), // NAME
+                Constraint::Length(8),  // CPU%
+                Constraint::Length(10), // MEM(MB)
+                Constraint::Length(12), // USER
             ]);
         frame.render_widget(table, chunks[2]);
         // Help line
@@ -3025,7 +3516,11 @@ fn handle_process_log_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<dy
             .iter()
             .filter(|entry| {
                 entry.name.to_lowercase().contains(&query)
-                    || entry.user.as_ref().map(|u| u.to_lowercase().contains(&query)).unwrap_or(false)
+                    || entry
+                        .user
+                        .as_ref()
+                        .map(|u| u.to_lowercase().contains(&query))
+                        .unwrap_or(false)
                     || entry.pid.to_string().contains(&query)
             })
             .cloned()
@@ -3088,7 +3583,10 @@ fn handle_process_log_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<dy
                 app.log_scroll_offset = (app.log_scroll_offset + 1).min(max_scroll);
             }
             KeyCode::PageUp => {
-                app.log_scroll_offset = app.log_scroll_offset.saturating_sub(log_height).min(max_scroll);
+                app.log_scroll_offset = app
+                    .log_scroll_offset
+                    .saturating_sub(log_height)
+                    .min(max_scroll);
             }
             KeyCode::PageDown => {
                 app.log_scroll_offset = (app.log_scroll_offset + log_height).min(max_scroll);
@@ -3102,21 +3600,25 @@ fn handle_process_log_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<dy
 // Draw container detail view
 fn draw_container_detail_view(f: &mut Frame, app: &mut App, area: Rect) {
     use crate::container_view::get_container_details;
-    
+
     let size = area;
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),  // Header
-            Constraint::Length(6),  // Container info
-            Constraint::Min(0),     // Process list
-            Constraint::Length(3),  // Menu
+            Constraint::Length(3), // Header
+            Constraint::Length(6), // Container info
+            Constraint::Min(0),    // Process list
+            Constraint::Length(3), // Menu
         ])
         .split(size);
 
     // Header
     let title = Paragraph::new("Container Details")
-        .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+        .style(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )
         .alignment(Alignment::Center)
         .block(Block::default().borders(Borders::ALL));
     f.render_widget(title, chunks[0]);
@@ -3128,32 +3630,101 @@ fn draw_container_detail_view(f: &mut Frame, app: &mut App, area: Rect) {
             let memory_mb = container.memory_usage / (1024 * 1024);
             let process_count_str = container.process_count().to_string();
             let info_lines = vec![
-                Line::from(vec![Span::styled("Container ID: ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)), Span::raw(&container.id)]),
-                Line::from(vec![Span::styled("Name: ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)), Span::raw(&container.name)]),
-                Line::from(vec![Span::styled("Total CPU: ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)), Span::styled(format!("{:.1}%", container.cpu_usage), Style::default().fg(Color::Cyan))]),
-                Line::from(vec![Span::styled("Total Memory: ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)), Span::styled(format!("{} MB", memory_mb), Style::default().fg(Color::Green))]),
-                Line::from(vec![Span::styled("Process Count: ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)), Span::raw(&process_count_str)]),
+                Line::from(vec![
+                    Span::styled(
+                        "Container ID: ",
+                        Style::default()
+                            .fg(Color::White)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::raw(&container.id),
+                ]),
+                Line::from(vec![
+                    Span::styled(
+                        "Name: ",
+                        Style::default()
+                            .fg(Color::White)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::raw(&container.name),
+                ]),
+                Line::from(vec![
+                    Span::styled(
+                        "Total CPU: ",
+                        Style::default()
+                            .fg(Color::White)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        format!("{:.1}%", container.cpu_usage),
+                        Style::default().fg(Color::Cyan),
+                    ),
+                ]),
+                Line::from(vec![
+                    Span::styled(
+                        "Total Memory: ",
+                        Style::default()
+                            .fg(Color::White)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        format!("{} MB", memory_mb),
+                        Style::default().fg(Color::Green),
+                    ),
+                ]),
+                Line::from(vec![
+                    Span::styled(
+                        "Process Count: ",
+                        Style::default()
+                            .fg(Color::White)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::raw(&process_count_str),
+                ]),
             ];
-            let info = Paragraph::new(info_lines)
-                .block(Block::default().borders(Borders::ALL).title("Container Information").style(Style::default().fg(Color::Black)));
+            let info = Paragraph::new(info_lines).block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("Container Information")
+                    .style(Style::default().fg(Color::Black)),
+            );
             f.render_widget(info, chunks[1]);
 
             // Process list
             if container.processes.is_empty() {
                 let empty_msg = Paragraph::new("No processes found in this container")
                     .style(Style::default().fg(Color::Yellow))
-                    .block(Block::default().borders(Borders::ALL).title("Processes in Container").style(Style::default().fg(Color::Black)));
+                    .block(
+                        Block::default()
+                            .borders(Borders::ALL)
+                            .title("Processes in Container")
+                            .style(Style::default().fg(Color::Black)),
+                    );
                 f.render_widget(empty_msg, chunks[2]);
             } else {
                 let headers = ["PID", "NAME", "CPU%", "MEM(MB)", "USER"];
-                let header_cells = headers.iter().map(|h| Cell::from(*h).style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD)));
-                let header = Row::new(header_cells).style(Style::default().bg(Color::Blue)).height(1);
+                let header_cells = headers.iter().map(|h| {
+                    Cell::from(*h).style(
+                        Style::default()
+                            .fg(Color::White)
+                            .add_modifier(Modifier::BOLD),
+                    )
+                });
+                let header = Row::new(header_cells)
+                    .style(Style::default().bg(Color::Blue))
+                    .height(1);
 
                 let visible_height = chunks[2].height as usize - 2;
-                let start_idx = app.detail_view_scroll_offset.min(container.processes.len().saturating_sub(visible_height));
+                let start_idx = app
+                    .detail_view_scroll_offset
+                    .min(container.processes.len().saturating_sub(visible_height));
                 let end_idx = (start_idx + visible_height).min(container.processes.len());
 
-                let rows: Vec<Row> = container.processes.iter().skip(start_idx).take(end_idx - start_idx)
+                let rows: Vec<Row> = container
+                    .processes
+                    .iter()
+                    .skip(start_idx)
+                    .take(end_idx - start_idx)
                     .map(|proc| {
                         Row::new(vec![
                             Cell::from(proc.pid.to_string()),
@@ -3167,7 +3738,12 @@ fn draw_container_detail_view(f: &mut Frame, app: &mut App, area: Rect) {
 
                 let table = Table::new(rows)
                     .header(header)
-                    .block(Block::default().borders(Borders::ALL).title("Processes in Container").style(Style::default().fg(Color::Black)))
+                    .block(
+                        Block::default()
+                            .borders(Borders::ALL)
+                            .title("Processes in Container")
+                            .style(Style::default().fg(Color::Black)),
+                    )
                     .widths(&[
                         Constraint::Length(8),
                         Constraint::Length(20),
@@ -3179,32 +3755,59 @@ fn draw_container_detail_view(f: &mut Frame, app: &mut App, area: Rect) {
             }
         } else {
             // Container not found
-            let error_msg = Paragraph::new(format!("Container '{}' not found or has no processes", container_id))
-                .style(Style::default().fg(Color::Red))
-                .block(Block::default().borders(Borders::ALL).title("Error").style(Style::default().fg(Color::Black)));
+            let error_msg = Paragraph::new(format!(
+                "Container '{}' not found or has no processes",
+                container_id
+            ))
+            .style(Style::default().fg(Color::Red))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("Error")
+                    .style(Style::default().fg(Color::Black)),
+            );
             f.render_widget(error_msg, chunks[1]);
-            
+
             let empty_msg = Paragraph::new("No container data available")
                 .style(Style::default().fg(Color::Yellow))
-                .block(Block::default().borders(Borders::ALL).title("Processes in Container").style(Style::default().fg(Color::Black)));
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .title("Processes in Container")
+                        .style(Style::default().fg(Color::Black)),
+                );
             f.render_widget(empty_msg, chunks[2]);
         }
     } else {
         // No container selected
         let error_msg = Paragraph::new("No container selected")
             .style(Style::default().fg(Color::Red))
-            .block(Block::default().borders(Borders::ALL).title("Error").style(Style::default().fg(Color::Black)));
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("Error")
+                    .style(Style::default().fg(Color::Black)),
+            );
         f.render_widget(error_msg, chunks[1]);
-        
+
         let empty_msg = Paragraph::new("No container data available")
             .style(Style::default().fg(Color::Yellow))
-            .block(Block::default().borders(Borders::ALL).title("Processes in Container").style(Style::default().fg(Color::Black)));
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("Processes in Container")
+                    .style(Style::default().fg(Color::Black)),
+            );
         f.render_widget(empty_msg, chunks[2]);
     }
 
     // Menu
     let menu = Paragraph::new("↑/↓: Scroll  |  [Esc] Back")
-        .block(Block::default().borders(Borders::ALL).style(Style::default().fg(Color::Black)))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .style(Style::default().fg(Color::Black)),
+        )
         .style(Style::default().fg(Color::Black))
         .alignment(Alignment::Left);
     f.render_widget(menu, chunks[3]);
@@ -3213,21 +3816,25 @@ fn draw_container_detail_view(f: &mut Frame, app: &mut App, area: Rect) {
 // Draw namespace detail view
 fn draw_namespace_detail_view(f: &mut Frame, app: &mut App, area: Rect) {
     use crate::namespace_view::get_namespace_group_details;
-    
+
     let size = area;
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),  // Header
-            Constraint::Length(6),  // Namespace info
-            Constraint::Min(0),     // Process list
-            Constraint::Length(3),  // Menu
+            Constraint::Length(3), // Header
+            Constraint::Length(6), // Namespace info
+            Constraint::Min(0),    // Process list
+            Constraint::Length(3), // Menu
         ])
         .split(size);
 
     // Header
     let title = Paragraph::new("Namespace Details")
-        .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+        .style(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )
         .alignment(Alignment::Center)
         .block(Block::default().borders(Borders::ALL));
     f.render_widget(title, chunks[0]);
@@ -3240,26 +3847,90 @@ fn draw_namespace_detail_view(f: &mut Frame, app: &mut App, area: Rect) {
             let ns_id_str = ns_id.to_string();
             let process_count_str = group.process_count().to_string();
             let info_lines = vec![
-                Line::from(vec![Span::styled("Namespace Type: ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)), Span::raw(ns_type)]),
-                Line::from(vec![Span::styled("Namespace ID: ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)), Span::raw(&ns_id_str)]),
-                Line::from(vec![Span::styled("Total CPU: ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)), Span::styled(format!("{:.1}%", group.cpu_usage), Style::default().fg(Color::Cyan))]),
-                Line::from(vec![Span::styled("Total Memory: ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)), Span::styled(format!("{} MB", memory_mb), Style::default().fg(Color::Green))]),
-                Line::from(vec![Span::styled("Process Count: ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)), Span::raw(&process_count_str)]),
+                Line::from(vec![
+                    Span::styled(
+                        "Namespace Type: ",
+                        Style::default()
+                            .fg(Color::White)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::raw(ns_type),
+                ]),
+                Line::from(vec![
+                    Span::styled(
+                        "Namespace ID: ",
+                        Style::default()
+                            .fg(Color::White)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::raw(&ns_id_str),
+                ]),
+                Line::from(vec![
+                    Span::styled(
+                        "Total CPU: ",
+                        Style::default()
+                            .fg(Color::White)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        format!("{:.1}%", group.cpu_usage),
+                        Style::default().fg(Color::Cyan),
+                    ),
+                ]),
+                Line::from(vec![
+                    Span::styled(
+                        "Total Memory: ",
+                        Style::default()
+                            .fg(Color::White)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        format!("{} MB", memory_mb),
+                        Style::default().fg(Color::Green),
+                    ),
+                ]),
+                Line::from(vec![
+                    Span::styled(
+                        "Process Count: ",
+                        Style::default()
+                            .fg(Color::White)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::raw(&process_count_str),
+                ]),
             ];
-            let info = Paragraph::new(info_lines)
-                .block(Block::default().borders(Borders::ALL).title("Namespace Information").style(Style::default().fg(Color::Black)));
+            let info = Paragraph::new(info_lines).block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("Namespace Information")
+                    .style(Style::default().fg(Color::Black)),
+            );
             f.render_widget(info, chunks[1]);
 
             // Process list
             let headers = ["PID", "NAME", "CPU%", "MEM(MB)", "USER"];
-            let header_cells = headers.iter().map(|h| Cell::from(*h).style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD)));
-            let header = Row::new(header_cells).style(Style::default().bg(Color::Blue)).height(1);
+            let header_cells = headers.iter().map(|h| {
+                Cell::from(*h).style(
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                )
+            });
+            let header = Row::new(header_cells)
+                .style(Style::default().bg(Color::Blue))
+                .height(1);
 
             let visible_height = chunks[2].height as usize - 2;
-            let start_idx = app.detail_view_scroll_offset.min(group.processes.len().saturating_sub(visible_height));
+            let start_idx = app
+                .detail_view_scroll_offset
+                .min(group.processes.len().saturating_sub(visible_height));
             let end_idx = (start_idx + visible_height).min(group.processes.len());
 
-            let rows: Vec<Row> = group.processes.iter().skip(start_idx).take(end_idx - start_idx)
+            let rows: Vec<Row> = group
+                .processes
+                .iter()
+                .skip(start_idx)
+                .take(end_idx - start_idx)
                 .map(|proc| {
                     Row::new(vec![
                         Cell::from(proc.pid.to_string()),
@@ -3273,7 +3944,12 @@ fn draw_namespace_detail_view(f: &mut Frame, app: &mut App, area: Rect) {
 
             let table = Table::new(rows)
                 .header(header)
-                .block(Block::default().borders(Borders::ALL).title("Processes in Namespace").style(Style::default().fg(Color::Black)))
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .title("Processes in Namespace")
+                        .style(Style::default().fg(Color::Black)),
+                )
                 .widths(&[
                     Constraint::Length(8),
                     Constraint::Length(20),
@@ -3287,7 +3963,11 @@ fn draw_namespace_detail_view(f: &mut Frame, app: &mut App, area: Rect) {
 
     // Menu
     let menu = Paragraph::new("↑/↓: Scroll  |  [Esc] Back")
-        .block(Block::default().borders(Borders::ALL).style(Style::default().fg(Color::Black)))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .style(Style::default().fg(Color::Black)),
+        )
         .style(Style::default().fg(Color::Black))
         .alignment(Alignment::Left);
     f.render_widget(menu, chunks[3]);
@@ -3295,15 +3975,15 @@ fn draw_namespace_detail_view(f: &mut Frame, app: &mut App, area: Rect) {
 
 // Draw grouped view for cgroups, containers, and namespaces
 fn draw_grouped_view(f: &mut Frame, app: &mut App, area: Rect) {
-    use crate::process_group::{ProcessGroupManager, GroupType};
-    
+    use crate::process_group::{GroupType, ProcessGroupManager};
+
     let size = area;
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),  // Header
-            Constraint::Min(0),     // Content
-            Constraint::Length(3),  // Menu
+            Constraint::Length(3), // Header
+            Constraint::Min(0),    // Content
+            Constraint::Length(3), // Menu
         ])
         .split(size);
 
@@ -3315,7 +3995,11 @@ fn draw_grouped_view(f: &mut Frame, app: &mut App, area: Rect) {
         GroupType::Username => "Username",
     };
     let title = Paragraph::new(format!("Grouped View: {}", group_type_name))
-        .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+        .style(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )
         .alignment(Alignment::Center)
         .block(Block::default().borders(Borders::ALL));
     f.render_widget(title, chunks[0]);
@@ -3325,17 +4009,19 @@ fn draw_grouped_view(f: &mut Frame, app: &mut App, area: Rect) {
     let groups: Vec<crate::process_group::ProcessGroup> = match app.grouped_view_type {
         GroupType::Cgroup => ProcessGroupManager::group_by_cgroup(processes),
         GroupType::Container => ProcessGroupManager::group_by_container(processes),
-        GroupType::Namespace(ref ns_type) => ProcessGroupManager::group_by_namespace(processes, ns_type),
+        GroupType::Namespace(ref ns_type) => {
+            ProcessGroupManager::group_by_namespace(processes, ns_type)
+        }
         GroupType::Username => ProcessGroupManager::group_by_username(processes),
     };
 
     // Sort groups - maintain stability for expanded groups to prevent jumping
     let mut sorted_groups = groups;
-    
+
     if app.group_view_frozen && !app.frozen_group_order.is_empty() {
         // Maintain frozen order for all groups
         let mut frozen_groups = Vec::new();
-        
+
         // Separate groups into frozen (in order) and others
         for group_id in &app.frozen_group_order {
             if let Some(pos) = sorted_groups.iter().position(|g| &g.group_id == group_id) {
@@ -3343,8 +4029,12 @@ fn draw_grouped_view(f: &mut Frame, app: &mut App, area: Rect) {
             }
         }
         // Sort remaining groups by CPU
-        sorted_groups.sort_by(|a, b| b.total_cpu.partial_cmp(&a.total_cpu).unwrap_or(std::cmp::Ordering::Equal));
-        
+        sorted_groups.sort_by(|a, b| {
+            b.total_cpu
+                .partial_cmp(&a.total_cpu)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
         // Combine: frozen groups first (in their order), then others sorted by CPU
         let mut final_groups = frozen_groups;
         final_groups.extend(sorted_groups);
@@ -3352,7 +4042,7 @@ fn draw_grouped_view(f: &mut Frame, app: &mut App, area: Rect) {
     } else if !app.expanded_groups.is_empty() && !app.frozen_group_order.is_empty() {
         // Auto-stabilize: maintain order for expanded groups, sort others by CPU
         let mut stable_groups = Vec::new();
-        
+
         // Keep expanded groups in their current order
         for group_id in &app.frozen_group_order {
             if app.expanded_groups.contains(group_id) {
@@ -3361,22 +4051,30 @@ fn draw_grouped_view(f: &mut Frame, app: &mut App, area: Rect) {
                 }
             }
         }
-        
+
         // Sort remaining groups by CPU
-        sorted_groups.sort_by(|a, b| b.total_cpu.partial_cmp(&a.total_cpu).unwrap_or(std::cmp::Ordering::Equal));
-        
+        sorted_groups.sort_by(|a, b| {
+            b.total_cpu
+                .partial_cmp(&a.total_cpu)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
         // Insert stable groups at their original positions (if possible) or at top
         // For simplicity, put stable groups first, then others
         let mut final_groups = stable_groups;
         final_groups.extend(sorted_groups);
         sorted_groups = final_groups;
-        
+
         // Update frozen order to maintain stability
         app.frozen_group_order = sorted_groups.iter().map(|g| g.group_id.clone()).collect();
     } else {
         // Normal sort by CPU usage (descending)
-        sorted_groups.sort_by(|a, b| b.total_cpu.partial_cmp(&a.total_cpu).unwrap_or(std::cmp::Ordering::Equal));
-        
+        sorted_groups.sort_by(|a, b| {
+            b.total_cpu
+                .partial_cmp(&a.total_cpu)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
         // Update frozen order when groups change (for future stability)
         app.frozen_group_order = sorted_groups.iter().map(|g| g.group_id.clone()).collect();
     }
@@ -3384,18 +4082,25 @@ fn draw_grouped_view(f: &mut Frame, app: &mut App, area: Rect) {
     // Build list items for groups
     // Note: Scroll offset is based on groups, expanded processes are shown inline
     let visible_height = chunks[1].height as usize - 2;
-    let start_idx = app.grouped_view_scroll_offset.min(sorted_groups.len().saturating_sub(1));
+    let start_idx = app
+        .grouped_view_scroll_offset
+        .min(sorted_groups.len().saturating_sub(1));
     let end_idx = (start_idx + visible_height.min(20)).min(sorted_groups.len()); // Limit to reasonable number
 
     let mut items = Vec::new();
-    for (i, group) in sorted_groups.iter().enumerate().skip(start_idx).take(end_idx - start_idx) {
+    for (i, group) in sorted_groups
+        .iter()
+        .enumerate()
+        .skip(start_idx)
+        .take(end_idx - start_idx)
+    {
         let is_expanded = app.expanded_groups.contains(&group.group_id);
         let idx_in_visible = i - start_idx;
         let is_selected = idx_in_visible == app.selected_group_index;
-        
+
         let expand_indicator = if is_expanded { "▼" } else { "▶" };
         let memory_mb = group.total_memory / (1024 * 1024);
-        
+
         // Get display name for container groups, namespace groups, and username groups
         let display_name = match &app.grouped_view_type {
             GroupType::Container => {
@@ -3423,26 +4128,47 @@ fn draw_grouped_view(f: &mut Frame, app: &mut App, area: Rect) {
             }
             _ => group.group_id.clone(),
         };
-        
-        let line = format!("{} {} | CPU: {:.1}% | MEM: {}MB | Processes: {}", 
-            expand_indicator, display_name, group.total_cpu, memory_mb, group.process_count());
-        
+
+        let line = format!(
+            "{} {} | CPU: {:.1}% | MEM: {}MB | Processes: {}",
+            expand_indicator,
+            display_name,
+            group.total_cpu,
+            memory_mb,
+            group.process_count()
+        );
+
         let style = if is_selected {
-            Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::Black)
+                .bg(Color::Yellow)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::Black)
         };
-        
+
         items.push(ListItem::new(Span::styled(line, style)));
-        
+
         // If expanded, show processes in the group (sorted by CPU descending)
         if is_expanded {
             let mut sorted_procs = group.processes.clone();
-            sorted_procs.sort_by(|a, b| b.cpu_usage.partial_cmp(&a.cpu_usage).unwrap_or(std::cmp::Ordering::Equal));
+            sorted_procs.sort_by(|a, b| {
+                b.cpu_usage
+                    .partial_cmp(&a.cpu_usage)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
             for process in &sorted_procs {
-                let proc_line = format!("  └─ {} (PID: {}) | CPU: {:.1}% | MEM: {}MB",
-                    process.name, process.pid, process.cpu_usage, process.memory_usage / (1024 * 1024));
-                items.push(ListItem::new(Span::styled(proc_line, Style::default().fg(Color::Cyan))));
+                let proc_line = format!(
+                    "  └─ {} (PID: {}) | CPU: {:.1}% | MEM: {}MB",
+                    process.name,
+                    process.pid,
+                    process.cpu_usage,
+                    process.memory_usage / (1024 * 1024)
+                );
+                items.push(ListItem::new(Span::styled(
+                    proc_line,
+                    Style::default().fg(Color::Cyan),
+                )));
             }
         }
     }
@@ -3453,32 +4179,33 @@ fn draw_grouped_view(f: &mut Frame, app: &mut App, area: Rect) {
     } else {
         "Groups (Enter: expand/collapse, 1/2/3: switch type, [f]: freeze/unfreeze)"
     };
-    
+
     let list = List::new(items)
         .block(Block::default().borders(Borders::ALL).title(title_text))
         .style(Style::default());
     f.render_widget(list, chunks[1]);
 
     // Menu
-    let menu_text = vec![
-        Line::from(vec![
-            Span::styled("[↑/↓] Navigate  ", Style::default().fg(Color::Cyan)),
-            Span::raw("| "),
-            Span::styled("[Enter] Expand/Collapse  ", Style::default().fg(Color::Yellow)),
-            Span::raw("| "),
-            Span::styled("[1] Cgroup  ", Style::default().fg(Color::Green)),
-            Span::raw("| "),
-            Span::styled("[2] Container  ", Style::default().fg(Color::Blue)),
-            Span::raw("| "),
-            Span::styled("[3] Namespace  ", Style::default().fg(Color::Magenta)),
-            Span::raw("| "),
-            Span::styled("[4] Username  ", Style::default().fg(Color::Cyan)),
-            Span::raw("| "),
-            Span::styled("[f] Freeze  ", Style::default().fg(Color::Red)),
-            Span::raw("| "),
-            Span::styled("[Esc] Back", Style::default().fg(Color::Black)),
-        ]),
-    ];
+    let menu_text = vec![Line::from(vec![
+        Span::styled("[↑/↓] Navigate  ", Style::default().fg(Color::Cyan)),
+        Span::raw("| "),
+        Span::styled(
+            "[Enter] Expand/Collapse  ",
+            Style::default().fg(Color::Yellow),
+        ),
+        Span::raw("| "),
+        Span::styled("[1] Cgroup  ", Style::default().fg(Color::Green)),
+        Span::raw("| "),
+        Span::styled("[2] Container  ", Style::default().fg(Color::Blue)),
+        Span::raw("| "),
+        Span::styled("[3] Namespace  ", Style::default().fg(Color::Magenta)),
+        Span::raw("| "),
+        Span::styled("[4] Username  ", Style::default().fg(Color::Cyan)),
+        Span::raw("| "),
+        Span::styled("[f] Freeze  ", Style::default().fg(Color::Red)),
+        Span::raw("| "),
+        Span::styled("[Esc] Back", Style::default().fg(Color::Black)),
+    ])];
     let menu = Paragraph::new(menu_text)
         .block(Block::default().borders(Borders::ALL))
         .alignment(Alignment::Left);
@@ -3487,35 +4214,41 @@ fn draw_grouped_view(f: &mut Frame, app: &mut App, area: Rect) {
 
 // Handle keyboard input for grouped view
 fn handle_grouped_view_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<dyn Error>> {
-    use crate::process_group::{ProcessGroupManager, GroupType};
-    
+    use crate::process_group::{GroupType, ProcessGroupManager};
+
     let processes = app.process_manager.get_processes();
     let mut groups: Vec<crate::process_group::ProcessGroup> = match app.grouped_view_type {
         GroupType::Cgroup => ProcessGroupManager::group_by_cgroup(processes),
         GroupType::Container => ProcessGroupManager::group_by_container(processes),
-        GroupType::Namespace(ref ns_type) => ProcessGroupManager::group_by_namespace(processes, ns_type),
+        GroupType::Namespace(ref ns_type) => {
+            ProcessGroupManager::group_by_namespace(processes, ns_type)
+        }
         GroupType::Username => ProcessGroupManager::group_by_username(processes),
     };
-    
+
     // Sort groups the same way as in draw_grouped_view to ensure index matching
     if app.group_view_frozen && !app.frozen_group_order.is_empty() {
         // Maintain frozen order
         let mut frozen_groups = Vec::new();
-        
+
         for group_id in &app.frozen_group_order {
             if let Some(pos) = groups.iter().position(|g| &g.group_id == group_id) {
                 frozen_groups.push(groups.remove(pos));
             }
         }
         // Sort remaining groups by CPU
-        groups.sort_by(|a, b| b.total_cpu.partial_cmp(&a.total_cpu).unwrap_or(std::cmp::Ordering::Equal));
+        groups.sort_by(|a, b| {
+            b.total_cpu
+                .partial_cmp(&a.total_cpu)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         let mut final_groups = frozen_groups;
         final_groups.extend(groups);
         groups = final_groups;
     } else if !app.expanded_groups.is_empty() && !app.frozen_group_order.is_empty() {
         // Auto-stabilize: maintain order for expanded groups
         let mut stable_groups = Vec::new();
-        
+
         for group_id in &app.frozen_group_order {
             if app.expanded_groups.contains(group_id) {
                 if let Some(pos) = groups.iter().position(|g| &g.group_id == group_id) {
@@ -3523,20 +4256,28 @@ fn handle_grouped_view_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<d
                 }
             }
         }
-        groups.sort_by(|a, b| b.total_cpu.partial_cmp(&a.total_cpu).unwrap_or(std::cmp::Ordering::Equal));
+        groups.sort_by(|a, b| {
+            b.total_cpu
+                .partial_cmp(&a.total_cpu)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         let mut final_groups = stable_groups;
         final_groups.extend(groups);
         groups = final_groups;
     } else {
         // Normal sort by CPU usage
-        groups.sort_by(|a, b| b.total_cpu.partial_cmp(&a.total_cpu).unwrap_or(std::cmp::Ordering::Equal));
+        groups.sort_by(|a, b| {
+            b.total_cpu
+                .partial_cmp(&a.total_cpu)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
     }
-    
+
     let num_groups = groups.len();
-    
+
     // Convert visible index to actual index in sorted groups (accounting for scroll offset)
     let actual_selected_index = app.grouped_view_scroll_offset + app.selected_group_index;
-    
+
     match key.code {
         KeyCode::Esc => {
             app.view_mode = ViewMode::ProcessList;
@@ -3558,8 +4299,9 @@ fn handle_grouped_view_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<d
         KeyCode::Down => {
             // Check if we can move down within visible groups
             let visible_height = 10; // Approximate visible height
-            let max_visible_index = visible_height.min(num_groups.saturating_sub(app.grouped_view_scroll_offset));
-            
+            let max_visible_index =
+                visible_height.min(num_groups.saturating_sub(app.grouped_view_scroll_offset));
+
             if app.selected_group_index + 1 < max_visible_index {
                 app.selected_group_index += 1;
             } else if actual_selected_index + 1 < num_groups {
@@ -3594,14 +4336,14 @@ fn handle_grouped_view_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<d
                                 // Invalid namespace ID format - this shouldn't happen with current logic
                                 app.input_state.message = Some((
                                     format!("Invalid namespace ID format: {}", id_str),
-                                    true
+                                    true,
                                 ));
                             }
                         } else {
                             // Malformed group_id - this shouldn't happen
                             app.input_state.message = Some((
                                 format!("Invalid namespace group format: {}", group.group_id),
-                                true
+                                true,
                             ));
                         }
                     }
@@ -3621,19 +4363,32 @@ fn handle_grouped_view_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<d
             app.group_view_frozen = !app.group_view_frozen;
             if app.group_view_frozen {
                 // Freeze current order
-                let current_groups: Vec<crate::process_group::ProcessGroup> = match app.grouped_view_type {
-                    GroupType::Cgroup => ProcessGroupManager::group_by_cgroup(processes),
-                    GroupType::Container => ProcessGroupManager::group_by_container(processes),
-                    GroupType::Namespace(ref ns_type) => ProcessGroupManager::group_by_namespace(processes, ns_type),
-                    GroupType::Username => ProcessGroupManager::group_by_username(processes),
-                };
+                let current_groups: Vec<crate::process_group::ProcessGroup> =
+                    match app.grouped_view_type {
+                        GroupType::Cgroup => ProcessGroupManager::group_by_cgroup(processes),
+                        GroupType::Container => ProcessGroupManager::group_by_container(processes),
+                        GroupType::Namespace(ref ns_type) => {
+                            ProcessGroupManager::group_by_namespace(processes, ns_type)
+                        }
+                        GroupType::Username => ProcessGroupManager::group_by_username(processes),
+                    };
                 let mut sorted = current_groups;
-                sorted.sort_by(|a, b| b.total_cpu.partial_cmp(&a.total_cpu).unwrap_or(std::cmp::Ordering::Equal));
+                sorted.sort_by(|a, b| {
+                    b.total_cpu
+                        .partial_cmp(&a.total_cpu)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
                 app.frozen_group_order = sorted.iter().map(|g| g.group_id.clone()).collect();
-                app.input_state.message = Some(("Group order frozen - expanded groups will stay in place".to_string(), false));
+                app.input_state.message = Some((
+                    "Group order frozen - expanded groups will stay in place".to_string(),
+                    false,
+                ));
             } else {
                 app.frozen_group_order.clear();
-                app.input_state.message = Some(("Group order unfrozen - groups will sort by CPU".to_string(), false));
+                app.input_state.message = Some((
+                    "Group order unfrozen - groups will sort by CPU".to_string(),
+                    false,
+                ));
             }
         }
         KeyCode::Char('1') => {
@@ -3671,7 +4426,7 @@ fn handle_grouped_view_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<d
                     GroupType::Namespace(ns) => Some(ns.clone()),
                     _ => None,
                 };
-                
+
                 if let Some(current) = current_ns {
                     // Find current index and move to next
                     if let Some(current_idx) = ns_types.iter().position(|ns| ns == &current) {
@@ -3700,7 +4455,7 @@ fn handle_grouped_view_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<d
 // Handle keyboard input for container detail view
 fn handle_container_detail_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<dyn Error>> {
     use crate::container_view::get_container_details;
-    
+
     match key.code {
         KeyCode::Esc => {
             // Always go back to grouped view when Esc is pressed
@@ -3714,7 +4469,9 @@ fn handle_container_detail_input(key: KeyEvent, app: &mut App) -> Result<bool, B
                 if let Some(container) = get_container_details(processes, container_id) {
                     let num_processes = container.processes.len();
                     let visible_height = 10; // Approximate
-                    app.detail_view_scroll_offset = app.detail_view_scroll_offset.saturating_sub(1)
+                    app.detail_view_scroll_offset = app
+                        .detail_view_scroll_offset
+                        .saturating_sub(1)
                         .min(num_processes.saturating_sub(visible_height));
                     return Ok(false); // Key handled, don't exit
                 }
@@ -3727,7 +4484,8 @@ fn handle_container_detail_input(key: KeyEvent, app: &mut App) -> Result<bool, B
                     let num_processes = container.processes.len();
                     let visible_height = 10; // Approximate
                     let max_scroll = num_processes.saturating_sub(visible_height);
-                    app.detail_view_scroll_offset = (app.detail_view_scroll_offset + 1).min(max_scroll);
+                    app.detail_view_scroll_offset =
+                        (app.detail_view_scroll_offset + 1).min(max_scroll);
                     return Ok(false); // Key handled, don't exit
                 }
             }
@@ -3738,7 +4496,9 @@ fn handle_container_detail_input(key: KeyEvent, app: &mut App) -> Result<bool, B
                 if let Some(container) = get_container_details(processes, container_id) {
                     let num_processes = container.processes.len();
                     let visible_height = 10; // Approximate
-                    app.detail_view_scroll_offset = app.detail_view_scroll_offset.saturating_sub(visible_height)
+                    app.detail_view_scroll_offset = app
+                        .detail_view_scroll_offset
+                        .saturating_sub(visible_height)
                         .min(num_processes.saturating_sub(visible_height));
                     return Ok(false); // Key handled, don't exit
                 }
@@ -3751,7 +4511,8 @@ fn handle_container_detail_input(key: KeyEvent, app: &mut App) -> Result<bool, B
                     let num_processes = container.processes.len();
                     let visible_height = 10; // Approximate
                     let max_scroll = num_processes.saturating_sub(visible_height);
-                    app.detail_view_scroll_offset = (app.detail_view_scroll_offset + visible_height).min(max_scroll);
+                    app.detail_view_scroll_offset =
+                        (app.detail_view_scroll_offset + visible_height).min(max_scroll);
                     return Ok(false); // Key handled, don't exit
                 }
             }
@@ -3764,33 +4525,39 @@ fn handle_container_detail_input(key: KeyEvent, app: &mut App) -> Result<bool, B
 // Handle keyboard input for namespace detail view
 fn handle_namespace_detail_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<dyn Error>> {
     use crate::namespace_view::get_namespace_group_details;
-    
+
     let processes = app.process_manager.get_processes();
     if let Some((ns_type, ns_id)) = &app.selected_namespace {
         if let Some(group) = get_namespace_group_details(processes, ns_type, *ns_id) {
             let num_processes = group.processes.len();
             let visible_height = 10; // Approximate
-            
+
             match key.code {
                 KeyCode::Esc => {
                     app.view_mode = ViewMode::GroupedView;
                     app.detail_view_scroll_offset = 0;
                 }
                 KeyCode::Up => {
-                    app.detail_view_scroll_offset = app.detail_view_scroll_offset.saturating_sub(1)
+                    app.detail_view_scroll_offset = app
+                        .detail_view_scroll_offset
+                        .saturating_sub(1)
                         .min(num_processes.saturating_sub(visible_height));
                 }
                 KeyCode::Down => {
                     let max_scroll = num_processes.saturating_sub(visible_height);
-                    app.detail_view_scroll_offset = (app.detail_view_scroll_offset + 1).min(max_scroll);
+                    app.detail_view_scroll_offset =
+                        (app.detail_view_scroll_offset + 1).min(max_scroll);
                 }
                 KeyCode::PageUp => {
-                    app.detail_view_scroll_offset = app.detail_view_scroll_offset.saturating_sub(visible_height)
+                    app.detail_view_scroll_offset = app
+                        .detail_view_scroll_offset
+                        .saturating_sub(visible_height)
                         .min(num_processes.saturating_sub(visible_height));
                 }
                 KeyCode::PageDown => {
                     let max_scroll = num_processes.saturating_sub(visible_height);
-                    app.detail_view_scroll_offset = (app.detail_view_scroll_offset + visible_height).min(max_scroll);
+                    app.detail_view_scroll_offset =
+                        (app.detail_view_scroll_offset + visible_height).min(max_scroll);
                 }
                 _ => {}
             }
@@ -3806,22 +4573,26 @@ fn handle_namespace_detail_input(key: KeyEvent, app: &mut App) -> Result<bool, B
 
 // Draw scheduler view
 fn draw_scheduler_view(f: &mut Frame, app: &mut App, area: Rect) {
-    use crate::scheduler::{ScheduleType, ScheduleAction};
-    
+    use crate::scheduler::{ScheduleAction, ScheduleType};
+
     let size = area;
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),  // Header
+            Constraint::Length(3),      // Header
             Constraint::Percentage(60), // Task list
             Constraint::Percentage(40), // Log
-            Constraint::Length(3),  // Menu
+            Constraint::Length(3),      // Menu
         ])
         .split(size);
 
     // Header
     let title = Paragraph::new("Job Scheduler")
-        .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+        .style(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )
         .alignment(Alignment::Center)
         .block(Block::default().borders(Borders::ALL));
     f.render_widget(title, chunks[0]);
@@ -3829,21 +4600,28 @@ fn draw_scheduler_view(f: &mut Frame, app: &mut App, area: Rect) {
     // Task list
     let tasks = app.scheduler.get_tasks();
     let visible_height = chunks[1].height as usize - 2;
-    let start_idx = app.scheduler_scroll_offset.min(tasks.len().saturating_sub(visible_height));
+    let start_idx = app
+        .scheduler_scroll_offset
+        .min(tasks.len().saturating_sub(visible_height));
     let end_idx = (start_idx + visible_height).min(tasks.len());
 
     let mut items = Vec::new();
-    for (i, task) in tasks.iter().enumerate().skip(start_idx).take(end_idx - start_idx) {
+    for (i, task) in tasks
+        .iter()
+        .enumerate()
+        .skip(start_idx)
+        .take(end_idx - start_idx)
+    {
         let idx_in_visible = i - start_idx;
         let is_selected = idx_in_visible == app.selected_task_index;
-        
+
         let status = if task.enabled { "✓" } else { "✗" };
         let schedule_str = match &task.schedule {
             ScheduleType::Cron(expr) => format!("Cron: {}", expr),
             ScheduleType::Interval(secs) => format!("Every {}s", secs),
             ScheduleType::Once(_) => "Once".to_string(),
         };
-        
+
         let action_str = match &task.action {
             ScheduleAction::RestartProcess { pattern } => format!("Restart: {}", pattern),
             ScheduleAction::StartProcess { program, args } => {
@@ -3853,54 +4631,93 @@ fn draw_scheduler_view(f: &mut Frame, app: &mut App, area: Rect) {
                     format!("Start: {} {}", program, args.join(" "))
                 }
             }
-            ScheduleAction::CleanupIdle { cpu_threshold, memory_threshold, action, .. } => {
-                format!("Cleanup: CPU<{}%, MEM>{}MB, {}", 
-                    cpu_threshold, memory_threshold / (1024*1024), action)
+            ScheduleAction::CleanupIdle {
+                cpu_threshold,
+                memory_threshold,
+                action,
+                ..
+            } => {
+                format!(
+                    "Cleanup: CPU<{}%, MEM>{}MB, {}",
+                    cpu_threshold,
+                    memory_threshold / (1024 * 1024),
+                    action
+                )
             }
             ScheduleAction::ApplyRule { rule } => format!("Rule: {}", rule),
             ScheduleAction::KillProcess { pid } => format!("Kill PID: {}", pid),
             ScheduleAction::StopProcess { pid } => format!("Stop PID: {}", pid),
             ScheduleAction::ContinueProcess { pid } => format!("Continue PID: {}", pid),
-            ScheduleAction::ReniceProcess { pid, nice } => format!("Renice PID: {} to {}", pid, nice),
+            ScheduleAction::ReniceProcess { pid, nice } => {
+                format!("Renice PID: {} to {}", pid, nice)
+            }
         };
-        
-        let line = format!("{} {} | {} | {}", status, task.name, schedule_str, action_str);
+
+        let line = format!(
+            "{} {} | {} | {}",
+            status, task.name, schedule_str, action_str
+        );
         let style = if is_selected {
-            Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::Black)
+                .bg(Color::Yellow)
+                .add_modifier(Modifier::BOLD)
         } else if task.enabled {
             Style::default().fg(Color::Black)
         } else {
             Style::default().fg(Color::Black)
         };
-        
+
         items.push(ListItem::new(Span::styled(line, style)));
     }
 
     let list = List::new(items)
-        .block(Block::default().borders(Borders::ALL).title("Scheduled Tasks (Enter: toggle, A/+: add, -: delete)").style(Style::default().fg(Color::Black)))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Scheduled Tasks (Enter: toggle, A/+: add, -: delete)")
+                .style(Style::default().fg(Color::Black)),
+        )
         .style(Style::default());
     f.render_widget(list, chunks[1]);
 
     // Log
     let log = app.scheduler.get_task_log();
-    let log_items: Vec<ListItem> = log.iter().rev().take(20)
+    let log_items: Vec<ListItem> = log
+        .iter()
+        .rev()
+        .take(20)
         .map(|(name, time, result)| {
-            let time_str = format!("{}", chrono::DateTime::<chrono::Local>::from(*time).format("%H:%M:%S"));
+            let time_str = format!(
+                "{}",
+                chrono::DateTime::<chrono::Local>::from(*time).format("%H:%M:%S")
+            );
             let line = format!("[{}] {}: {}", time_str, name, result);
             ListItem::new(Span::styled(line, Style::default().fg(Color::Cyan)))
         })
         .collect();
-    
+
     let log_list = List::new(log_items)
-        .block(Block::default().borders(Borders::ALL).title("Task Execution Log").style(Style::default().fg(Color::Black)))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Task Execution Log")
+                .style(Style::default().fg(Color::Black)),
+        )
         .style(Style::default());
     f.render_widget(log_list, chunks[2]);
 
     // Menu
-    let menu = Paragraph::new("↑/↓: Navigate  |  [Enter] Toggle  |  [A/+] Add  |  [-] Delete  |  [Esc] Back  |  [S] Save")
-        .block(Block::default().borders(Borders::ALL).style(Style::default().fg(Color::Black)))
-        .style(Style::default().fg(Color::Black))
-        .alignment(Alignment::Left);
+    let menu = Paragraph::new(
+        "↑/↓: Navigate  |  [Enter] Toggle  |  [A/+] Add  |  [-] Delete  |  [Esc] Back  |  [S] Save",
+    )
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .style(Style::default().fg(Color::Black)),
+    )
+    .style(Style::default().fg(Color::Black))
+    .alignment(Alignment::Left);
     f.render_widget(menu, chunks[3]);
 }
 
@@ -3908,7 +4725,7 @@ fn draw_scheduler_view(f: &mut Frame, app: &mut App, area: Rect) {
 fn handle_scheduler_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<dyn Error>> {
     let tasks = app.scheduler.get_tasks();
     let num_tasks = tasks.len();
-    
+
     match key.code {
         KeyCode::Esc => {
             app.view_mode = ViewMode::ProcessList;
@@ -3950,7 +4767,9 @@ fn handle_scheduler_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<dyn 
             // Delete selected task
             if app.selected_task_index < num_tasks {
                 app.scheduler.remove_task(app.selected_task_index);
-                if app.selected_task_index >= app.scheduler.get_tasks().len() && app.selected_task_index > 0 {
+                if app.selected_task_index >= app.scheduler.get_tasks().len()
+                    && app.selected_task_index > 0
+                {
                     app.selected_task_index -= 1;
                 }
             }
@@ -3975,7 +4794,7 @@ fn handle_scheduler_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<dyn 
 // Draw start process menu
 fn draw_start_process_menu(f: &mut Frame, app: &mut App, area: Rect) {
     use ratatui::layout::Rect;
-    
+
     let size = area;
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -3989,32 +4808,46 @@ fn draw_start_process_menu(f: &mut Frame, app: &mut App, area: Rect) {
 
     // Title
     let title = Paragraph::new("Start New Process")
-        .style(Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))
+        .style(
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        )
         .alignment(Alignment::Center)
-        .block(Block::default().borders(Borders::ALL).border_type(ratatui::widgets::BorderType::Thick));
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_type(ratatui::widgets::BorderType::Thick),
+        );
     f.render_widget(title, chunks[0]);
 
     // Input fields
     let field_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),  // Program path - increased to 3 for text visibility
-            Constraint::Length(3),  // Working directory - increased to 3
-            Constraint::Length(3),  // Arguments - increased to 3
-            Constraint::Length(0),  // Removed extra spacer
+            Constraint::Length(3), // Program path - increased to 3 for text visibility
+            Constraint::Length(3), // Working directory - increased to 3
+            Constraint::Length(3), // Arguments - increased to 3
+            Constraint::Length(0), // Removed extra spacer
         ])
         .split(chunks[1]);
 
     let fields = [
         ("Program Path", &app.input_state.program_path, 0),
-        ("Working Directory (optional)", &app.input_state.working_dir, 1),
+        (
+            "Working Directory (optional)",
+            &app.input_state.working_dir,
+            1,
+        ),
         ("Arguments (space-separated)", &app.input_state.arguments, 2),
     ];
 
     for (i, (label, value, field_idx)) in fields.iter().enumerate() {
         let is_active = app.input_state.current_start_input_field == *field_idx;
         let style = if is_active {
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::Black)
         };
@@ -4029,20 +4862,39 @@ fn draw_start_process_menu(f: &mut Frame, app: &mut App, area: Rect) {
 
     // Instructions
     let instructions = vec![
-        Line::from(vec![Span::styled("Instructions:", Style::default().fg(Color::Black).add_modifier(Modifier::BOLD))]),
-        Line::from(vec![Span::raw("1. Enter program path (e.g., /usr/bin/sleep)")]),
+        Line::from(vec![Span::styled(
+            "Instructions:",
+            Style::default()
+                .fg(Color::Black)
+                .add_modifier(Modifier::BOLD),
+        )]),
+        Line::from(vec![Span::raw(
+            "1. Enter program path (e.g., /usr/bin/sleep)",
+        )]),
         Line::from(vec![Span::raw("2. Optionally enter working directory")]),
-        Line::from(vec![Span::raw("3. Optionally enter command-line arguments")]),
-        Line::from(vec![Span::raw("4. Press [Tab] to switch fields, [Enter] to start process")]),
+        Line::from(vec![Span::raw(
+            "3. Optionally enter command-line arguments",
+        )]),
+        Line::from(vec![Span::raw(
+            "4. Press [Tab] to switch fields, [Enter] to start process",
+        )]),
         Line::from(vec![Span::raw("5. Press [Esc] to cancel")]),
     ];
-    let inst_para = Paragraph::new(instructions)
-        .block(Block::default().borders(Borders::ALL).title("Instructions").style(Style::default().fg(Color::Black)));
+    let inst_para = Paragraph::new(instructions).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title("Instructions")
+            .style(Style::default().fg(Color::Black)),
+    );
     f.render_widget(inst_para, chunks[2]);
 
     // Menu
     let menu = Paragraph::new("[Tab] Next field  |  [Enter] Start  |  [Esc] Cancel")
-        .block(Block::default().borders(Borders::ALL).style(Style::default().fg(Color::Black)))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .style(Style::default().fg(Color::Black)),
+        )
         .style(Style::default().fg(Color::Black))
         .alignment(Alignment::Left);
     f.render_widget(menu, chunks[3]);
@@ -4050,8 +4902,17 @@ fn draw_start_process_menu(f: &mut Frame, app: &mut App, area: Rect) {
     // Show message if any
     if let Some((msg, is_error)) = &app.input_state.message {
         let msg_para = Paragraph::new(msg.as_str())
-            .style(if *is_error { Style::default().fg(Color::Red) } else { Style::default().fg(Color::Green) })
-            .block(Block::default().borders(Borders::ALL).title("Status").style(Style::default().fg(Color::Black)));
+            .style(if *is_error {
+                Style::default().fg(Color::Red)
+            } else {
+                Style::default().fg(Color::Green)
+            })
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("Status")
+                    .style(Style::default().fg(Color::Black)),
+            );
         let msg_area = Rect {
             x: size.width / 4,
             y: size.height / 2,
@@ -4067,7 +4928,8 @@ fn handle_start_process_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<
     match key.code {
         KeyCode::Tab => {
             // Switch to next field
-            app.input_state.current_start_input_field = (app.input_state.current_start_input_field + 1) % 3;
+            app.input_state.current_start_input_field =
+                (app.input_state.current_start_input_field + 1) % 3;
         }
         KeyCode::Char(c) if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT => {
             // Add character to current field (only if no Ctrl/Alt modifiers)
@@ -4081,20 +4943,25 @@ fn handle_start_process_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<
         KeyCode::Backspace => {
             // Remove character from current field
             match app.input_state.current_start_input_field {
-                0 => { app.input_state.program_path.pop(); }
-                1 => { app.input_state.working_dir.pop(); }
-                2 => { app.input_state.arguments.pop(); }
+                0 => {
+                    app.input_state.program_path.pop();
+                }
+                1 => {
+                    app.input_state.working_dir.pop();
+                }
+                2 => {
+                    app.input_state.arguments.pop();
+                }
                 _ => {}
             }
         }
         KeyCode::Enter => {
             // Start the process
             if app.input_state.program_path.is_empty() {
-                app.input_state.message = Some((
-                    "Error: Program path is required".to_string(),
-                    true
-                ));
-                app.input_state.message_timeout = Some(std::time::Instant::now() + Duration::from_secs(2));
+                app.input_state.message =
+                    Some(("Error: Program path is required".to_string(), true));
+                app.input_state.message_timeout =
+                    Some(std::time::Instant::now() + Duration::from_secs(2));
             } else {
                 // Parse arguments
                 let args: Vec<&str> = if app.input_state.arguments.is_empty() {
@@ -4102,14 +4969,14 @@ fn handle_start_process_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<
                 } else {
                     app.input_state.arguments.split_whitespace().collect()
                 };
-                
+
                 // Parse working directory
                 let working_dir = if app.input_state.working_dir.is_empty() {
                     None
                 } else {
                     Some(app.input_state.working_dir.as_str())
                 };
-                
+
                 // Start the process
                 match app.process_manager.start_process(
                     &app.input_state.program_path,
@@ -4120,9 +4987,10 @@ fn handle_start_process_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<
                     Ok(pid) => {
                         app.input_state.message = Some((
                             format!("Successfully started process with PID: {}", pid),
-                            false
+                            false,
                         ));
-                        app.input_state.message_timeout = Some(std::time::Instant::now() + Duration::from_secs(2));
+                        app.input_state.message_timeout =
+                            Some(std::time::Instant::now() + Duration::from_secs(2));
                         // Clear inputs
                         app.input_state.program_path.clear();
                         app.input_state.working_dir.clear();
@@ -4131,11 +4999,10 @@ fn handle_start_process_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<
                         app.input_state.current_start_input_field = 0;
                     }
                     Err(e) => {
-                        app.input_state.message = Some((
-                            format!("Error starting process: {}", e),
-                            true
-                        ));
-                        app.input_state.message_timeout = Some(std::time::Instant::now() + Duration::from_secs(2));
+                        app.input_state.message =
+                            Some((format!("Error starting process: {}", e), true));
+                        app.input_state.message_timeout =
+                            Some(std::time::Instant::now() + Duration::from_secs(2));
                     }
                 }
             }
@@ -4157,23 +5024,31 @@ fn handle_start_process_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<
 // Draw advanced filter input menu
 fn draw_advanced_filter_input(f: &mut Frame, app: &mut App, area: Rect) {
     use ratatui::layout::Rect;
-    
+
     let size = area;
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),  // Title
-            Constraint::Length(5),  // Input field
-            Constraint::Min(10),    // Help/Examples
-            Constraint::Length(3),  // Menu
+            Constraint::Length(3), // Title
+            Constraint::Length(5), // Input field
+            Constraint::Min(10),   // Help/Examples
+            Constraint::Length(3), // Menu
         ])
         .split(size);
 
     // Title
     let title = Paragraph::new("Advanced Filter")
-        .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+        .style(
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )
         .alignment(Alignment::Center)
-        .block(Block::default().borders(Borders::ALL).border_type(ratatui::widgets::BorderType::Thick));
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_type(ratatui::widgets::BorderType::Thick),
+        );
     f.render_widget(title, chunks[0]);
 
     // Input field
@@ -4184,36 +5059,70 @@ fn draw_advanced_filter_input(f: &mut Frame, app: &mut App, area: Rect) {
     };
     let input_para = Paragraph::new(input_text)
         .style(Style::default().fg(Color::Black))
-        .block(Block::default().borders(Borders::ALL).title("Filter Expression").style(Style::default().fg(Color::Black)));
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Filter Expression")
+                .style(Style::default().fg(Color::Black)),
+        );
     f.render_widget(input_para, chunks[1]);
 
     // Help and examples
     let help_text = vec![
-        Line::from(vec![Span::styled("Syntax Help:", Style::default().fg(Color::Black).add_modifier(Modifier::BOLD))]),
+        Line::from(vec![Span::styled(
+            "Syntax Help:",
+            Style::default()
+                .fg(Color::Black)
+                .add_modifier(Modifier::BOLD),
+        )]),
         Line::from(""),
-        Line::from(vec![Span::styled("Fields:", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))]),
+        Line::from(vec![Span::styled(
+            "Fields:",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )]),
         Line::from("  String: name, user, status"),
         Line::from("  Numeric: pid, ppid, cpu, memory, nice"),
         Line::from(""),
-        Line::from(vec![Span::styled("Operators:", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))]),
+        Line::from(vec![Span::styled(
+            "Operators:",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )]),
         Line::from("  String: ==, !=, ~ (regex)"),
         Line::from("  Numeric: ==, !=, >, <, >=, <="),
         Line::from("  Boolean: AND, OR, NOT"),
         Line::from(""),
-        Line::from(vec![Span::styled("Examples:", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))]),
+        Line::from(vec![Span::styled(
+            "Examples:",
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        )]),
         Line::from("  name ~ \"firefox|chrome\" AND cpu > 10"),
         Line::from("  user == \"root\" OR (memory > 5000 AND status == \"running\")"),
         Line::from("  NOT (pid == 1234) AND ppid == 1"),
         Line::from("  cpu > 50 AND memory < 1000"),
     ];
     let help_para = Paragraph::new(help_text)
-        .block(Block::default().borders(Borders::ALL).title("Help & Examples").style(Style::default().fg(Color::Black)))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Help & Examples")
+                .style(Style::default().fg(Color::Black)),
+        )
         .wrap(ratatui::widgets::Wrap { trim: true });
     f.render_widget(help_para, chunks[2]);
 
     // Menu
     let menu = Paragraph::new("[Enter] Apply  |  [Esc] Cancel  |  [Backspace] Delete")
-        .block(Block::default().borders(Borders::ALL).style(Style::default().fg(Color::Black)))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .style(Style::default().fg(Color::Black)),
+        )
         .style(Style::default().fg(Color::Black))
         .alignment(Alignment::Left);
     f.render_widget(menu, chunks[3]);
@@ -4221,8 +5130,17 @@ fn draw_advanced_filter_input(f: &mut Frame, app: &mut App, area: Rect) {
     // Show message if any
     if let Some((msg, is_error)) = &app.input_state.message {
         let msg_para = Paragraph::new(msg.as_str())
-            .style(if *is_error { Style::default().fg(Color::Red) } else { Style::default().fg(Color::Green) })
-            .block(Block::default().borders(Borders::ALL).title("Status").style(Style::default().fg(Color::Black)));
+            .style(if *is_error {
+                Style::default().fg(Color::Red)
+            } else {
+                Style::default().fg(Color::Green)
+            })
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("Status")
+                    .style(Style::default().fg(Color::Black)),
+            );
         let msg_area = Rect {
             x: size.width / 4,
             y: size.height / 2,
@@ -4248,34 +5166,26 @@ fn handle_advanced_filter_input(key: KeyEvent, app: &mut App) -> Result<bool, Bo
             if filter_str.is_empty() {
                 // Clear filter
                 if let Err(e) = app.process_manager.set_advanced_filter_string("") {
-                    app.input_state.message = Some((
-                        format!("Error: {}", e),
-                        true
-                    ));
+                    app.input_state.message = Some((format!("Error: {}", e), true));
                 } else {
-                    app.input_state.message = Some((
-                        "Filter cleared".to_string(),
-                        false
-                    ));
+                    app.input_state.message = Some(("Filter cleared".to_string(), false));
                 }
-                app.input_state.message_timeout = Some(std::time::Instant::now() + Duration::from_secs(2));
+                app.input_state.message_timeout =
+                    Some(std::time::Instant::now() + Duration::from_secs(2));
                 app.view_mode = ViewMode::ProcessList;
             } else {
                 match app.process_manager.set_advanced_filter_string(filter_str) {
                     Ok(_) => {
-                        app.input_state.message = Some((
-                            format!("Filter applied: {}", filter_str),
-                            false
-                        ));
-                        app.input_state.message_timeout = Some(std::time::Instant::now() + Duration::from_secs(2));
+                        app.input_state.message =
+                            Some((format!("Filter applied: {}", filter_str), false));
+                        app.input_state.message_timeout =
+                            Some(std::time::Instant::now() + Duration::from_secs(2));
                         app.view_mode = ViewMode::ProcessList;
                     }
                     Err(e) => {
-                        app.input_state.message = Some((
-                            format!("Filter error: {}", e),
-                            true
-                        ));
-                        app.input_state.message_timeout = Some(std::time::Instant::now() + Duration::from_secs(3));
+                        app.input_state.message = Some((format!("Filter error: {}", e), true));
+                        app.input_state.message_timeout =
+                            Some(std::time::Instant::now() + Duration::from_secs(3));
                     }
                 }
             }
@@ -4296,60 +5206,84 @@ fn draw_profile_management(f: &mut Frame, app: &mut App, area: Rect) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),  // Title
-            Constraint::Min(10),    // Profile list
-            Constraint::Length(3),  // Menu
+            Constraint::Length(3), // Title
+            Constraint::Min(10),   // Profile list
+            Constraint::Length(3), // Menu
         ])
         .split(size);
 
     // Title
-    let active_profile = app.profile_manager.get_active_profile()
+    let active_profile = app
+        .profile_manager
+        .get_active_profile()
         .map(|s| format!(" (Active: {})", s))
         .unwrap_or_default();
     let title = Paragraph::new(format!("Profile Management{}", active_profile))
-        .style(Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD))
+        .style(
+            Style::default()
+                .fg(Color::Magenta)
+                .add_modifier(Modifier::BOLD),
+        )
         .alignment(Alignment::Center)
-        .block(Block::default().borders(Borders::ALL).border_type(ratatui::widgets::BorderType::Thick));
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_type(ratatui::widgets::BorderType::Thick),
+        );
     f.render_widget(title, chunks[0]);
 
     // Profile list
     let profiles = app.profile_manager.get_profiles();
-    let items: Vec<ListItem> = profiles.iter()
+    let items: Vec<ListItem> = profiles
+        .iter()
         .enumerate()
         .map(|(i, profile)| {
             let is_active = app.profile_manager.get_active_profile() == Some(profile.name.as_str());
             let is_selected = i == app.selected_profile_index;
             let prefix = if is_active { "[ACTIVE] " } else { "" };
             let style = if is_selected {
-                Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD)
             } else if is_active {
-                Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::Black)
             };
             ListItem::new(Span::styled(
-                format!("{}{} (Prioritize: {}, Hide: {}, Nice: {})",
+                format!(
+                    "{}{} (Prioritize: {}, Hide: {}, Nice: {})",
                     prefix,
                     profile.name,
                     profile.prioritize_processes.len(),
                     profile.hide_processes.len(),
                     profile.nice_adjustments.len()
                 ),
-                style
+                style,
             ))
         })
         .collect();
 
     let list = List::new(items)
-        .block(Block::default().borders(Borders::ALL).title("Profiles").style(Style::default().fg(Color::Black)))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Profiles")
+                .style(Style::default().fg(Color::Black)),
+        )
         .style(Style::default());
     f.render_widget(list, chunks[1]);
 
     // Menu
-    let menu = Paragraph::new("[+] Create  |  [Enter] Activate/Toggle  |  [E] Edit  |  [-] Delete  |  [Esc] Back")
-        .style(Style::default().fg(Color::Black))
-        .block(Block::default().borders(Borders::ALL))
-        .alignment(Alignment::Left);
+    let menu = Paragraph::new(
+        "[+] Create  |  [Enter] Activate/Toggle  |  [E] Edit  |  [-] Delete  |  [Esc] Back",
+    )
+    .style(Style::default().fg(Color::Black))
+    .block(Block::default().borders(Borders::ALL))
+    .alignment(Alignment::Left);
     f.render_widget(menu, chunks[2]);
 }
 
@@ -4357,7 +5291,7 @@ fn draw_profile_management(f: &mut Frame, app: &mut App, area: Rect) {
 fn handle_profile_management_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<dyn Error>> {
     let profiles = app.profile_manager.get_profiles();
     let num_profiles = profiles.len();
-    
+
     match key.code {
         KeyCode::Esc => {
             app.view_mode = ViewMode::ProcessList;
@@ -4388,13 +5322,14 @@ fn handle_profile_management_input(key: KeyEvent, app: &mut App) -> Result<bool,
                     app.profile_manager.set_active_profile(None);
                 } else {
                     // Activate
-                    app.profile_manager.set_active_profile(Some(profile.name.clone()));
-                    
+                    app.profile_manager
+                        .set_active_profile(Some(profile.name.clone()));
+
                     // Apply nice value adjustments for this profile
                     let profile_mgr = &app.profile_manager;
-                    let (_success, _fail) = app.process_manager.apply_nice_adjustments(|name| {
-                        profile_mgr.get_nice_adjustment(name)
-                    });
+                    let (_success, _fail) = app
+                        .process_manager
+                        .apply_nice_adjustments(|name| profile_mgr.get_nice_adjustment(name));
                     // Note: Not showing feedback messages to keep UI clean
                     // Users will see nice values change in the process list
                 }
@@ -4402,10 +5337,14 @@ fn handle_profile_management_input(key: KeyEvent, app: &mut App) -> Result<bool,
         }
         KeyCode::Char('-') => {
             // Delete profile
-            let profile_name = profiles.get(app.selected_profile_index).map(|p| p.name.clone());
+            let profile_name = profiles
+                .get(app.selected_profile_index)
+                .map(|p| p.name.clone());
             if let Some(name) = profile_name {
                 app.profile_manager.remove_profile(&name);
-                if app.selected_profile_index >= app.profile_manager.get_profiles().len() && app.selected_profile_index > 0 {
+                if app.selected_profile_index >= app.profile_manager.get_profiles().len()
+                    && app.selected_profile_index > 0
+                {
                     app.selected_profile_index -= 1;
                 }
             }
@@ -4417,7 +5356,9 @@ fn handle_profile_management_input(key: KeyEvent, app: &mut App) -> Result<bool,
                 app.profile_edit_prioritize = profile.prioritize_processes.join(", ");
                 app.profile_edit_hide = profile.hide_processes.join(", ");
                 // Format nice_adjustments as: "name1:10, name2:5"
-                app.profile_edit_nice = profile.nice_adjustments.iter()
+                app.profile_edit_nice = profile
+                    .nice_adjustments
+                    .iter()
                     .map(|(k, v)| format!("{}:{}", k, v))
                     .collect::<Vec<_>>()
                     .join(", ");
@@ -4430,9 +5371,6 @@ fn handle_profile_management_input(key: KeyEvent, app: &mut App) -> Result<bool,
     }
     Ok(false)
 }
-
-
-
 
 // Draw profile editor
 fn draw_profile_editor(f: &mut Frame, app: &mut App, area: Rect) {
@@ -4456,38 +5394,52 @@ fn draw_profile_editor(f: &mut Frame, app: &mut App, area: Rect) {
     // Helper to get style for field
     let get_style = |idx: usize, default_color: Color| {
         if app.profile_edit_current_field == idx {
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(default_color)
         }
     };
 
-    let prioblk = Block::default().borders(Borders::ALL)
-        .title(" Prioritize (comma-separated) ").style(Style::default().fg(Color::Black))
+    let prioblk = Block::default()
+        .borders(Borders::ALL)
+        .title(" Prioritize (comma-separated) ")
+        .style(Style::default().fg(Color::Black))
         .border_style(get_style(0, Color::Green));
     let prio = Paragraph::new(app.profile_edit_prioritize.as_str())
-        .block(prioblk).style(get_style(0, Color::Green));
+        .block(prioblk)
+        .style(get_style(0, Color::Green));
     f.render_widget(prio, chunks[1]);
 
-    let hideblk = Block::default().borders(Borders::ALL)
-        .title(" Hide (comma-separated) ").style(Style::default().fg(Color::Black))
+    let hideblk = Block::default()
+        .borders(Borders::ALL)
+        .title(" Hide (comma-separated) ")
+        .style(Style::default().fg(Color::Black))
         .border_style(get_style(1, Color::Red));
     let hide = Paragraph::new(app.profile_edit_hide.as_str())
-        .block(hideblk).style(get_style(1, Color::Red));
+        .block(hideblk)
+        .style(get_style(1, Color::Red));
     f.render_widget(hide, chunks[2]);
 
-    let niceblk = Block::default().borders(Borders::ALL)
-        .title(" Nice (name:val, name:val) ").style(Style::default().fg(Color::Black))
+    let niceblk = Block::default()
+        .borders(Borders::ALL)
+        .title(" Nice (name:val, name:val) ")
+        .style(Style::default().fg(Color::Black))
         .border_style(get_style(2, Color::Magenta));
     let nice = Paragraph::new(app.profile_edit_nice.as_str())
-        .block(niceblk).style(get_style(2, Color::Magenta));
+        .block(niceblk)
+        .style(get_style(2, Color::Magenta));
     f.render_widget(nice, chunks[3]);
 
-    let inst = Paragraph::new(
-        "Type to edit. [Tab] Next Field. [Enter] Save  |  [Esc] Cancel"
-    )
-    .block(Block::default().borders(Borders::ALL).title(" Instructions ").style(Style::default().fg(Color::Black)))
-    .style(Style::default().fg(Color::Black));
+    let inst = Paragraph::new("Type to edit. [Tab] Next Field. [Enter] Save  |  [Esc] Cancel")
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Instructions ")
+                .style(Style::default().fg(Color::Black)),
+        )
+        .style(Style::default().fg(Color::Black));
     f.render_widget(inst, chunks[4]);
 }
 
@@ -4506,13 +5458,31 @@ fn handle_profile_editor_input(key: KeyEvent, app: &mut App) -> Result<bool, Box
             }
         }
         KeyCode::Enter => {
-            let prio: Vec<String> = app.profile_edit_prioritize.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
-            let hide: Vec<String> = app.profile_edit_hide.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
-            let nice: std::collections::HashMap<String, i32> = app.profile_edit_nice.split(',').filter_map(|s| {
-                let p: Vec<&str> = s.split(':').collect();
-                if p.len() == 2 { Some((p[0].trim().to_string(), p[1].trim().parse::<i32>().ok()?)) } else { None }
-            }).collect();
-            
+            let prio: Vec<String> = app
+                .profile_edit_prioritize
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            let hide: Vec<String> = app
+                .profile_edit_hide
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            let nice: std::collections::HashMap<String, i32> = app
+                .profile_edit_nice
+                .split(',')
+                .filter_map(|s| {
+                    let p: Vec<&str> = s.split(':').collect();
+                    if p.len() == 2 {
+                        Some((p[0].trim().to_string(), p[1].trim().parse::<i32>().ok()?))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
             let prof = crate::profile::Profile {
                 name: app.profile_edit_name.clone(),
                 prioritize_processes: prio,
@@ -4522,27 +5492,30 @@ fn handle_profile_editor_input(key: KeyEvent, app: &mut App) -> Result<bool, Box
             app.profile_manager.add_profile(prof);
             app.view_mode = ViewMode::ProfileManagement;
             app.input_state.message = Some(("Profile saved".to_string(), false));
-            app.input_state.message_timeout = Some(std::time::Instant::now() + Duration::from_secs(2));
+            app.input_state.message_timeout =
+                Some(std::time::Instant::now() + Duration::from_secs(2));
         }
         KeyCode::Esc => {
             app.view_mode = ViewMode::ProfileManagement;
         }
-        KeyCode::Char(c) => {
-            match app.profile_edit_current_field {
-                0 => app.profile_edit_prioritize.push(c),
-                1 => app.profile_edit_hide.push(c),
-                2 => app.profile_edit_nice.push(c),
-                _ => {}
+        KeyCode::Char(c) => match app.profile_edit_current_field {
+            0 => app.profile_edit_prioritize.push(c),
+            1 => app.profile_edit_hide.push(c),
+            2 => app.profile_edit_nice.push(c),
+            _ => {}
+        },
+        KeyCode::Backspace => match app.profile_edit_current_field {
+            0 => {
+                app.profile_edit_prioritize.pop();
             }
-        }
-        KeyCode::Backspace => {
-            match app.profile_edit_current_field {
-                0 => { app.profile_edit_prioritize.pop(); },
-                1 => { app.profile_edit_hide.pop(); },
-                2 => { app.profile_edit_nice.pop(); },
-                _ => {}
+            1 => {
+                app.profile_edit_hide.pop();
             }
-        }
+            2 => {
+                app.profile_edit_nice.pop();
+            }
+            _ => {}
+        },
         _ => {}
     }
     Ok(false)
@@ -4554,10 +5527,10 @@ fn draw_alert_management(f: &mut Frame, app: &mut App, area: Rect) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),  // Title
-            Constraint::Length(8),   // Alert list (Reduced to give more space to active alerts)
-            Constraint::Min(15),    // Active alerts (Increased)
-            Constraint::Length(3),  // Menu
+            Constraint::Length(3), // Title
+            Constraint::Length(8), // Alert list (Reduced to give more space to active alerts)
+            Constraint::Min(15),   // Active alerts (Increased)
+            Constraint::Length(3), // Menu
         ])
         .split(size);
 
@@ -4569,26 +5542,49 @@ fn draw_alert_management(f: &mut Frame, app: &mut App, area: Rect) {
         "Alert Management".to_string()
     };
     let title = Paragraph::new(title_text)
-        .style(Style::default().fg(Color::Black).add_modifier(Modifier::BOLD))
+        .style(
+            Style::default()
+                .fg(Color::Black)
+                .add_modifier(Modifier::BOLD),
+        )
         .alignment(Alignment::Center)
-        .block(Block::default().borders(Borders::ALL).border_type(ratatui::widgets::BorderType::Thick).style(Style::default().fg(Color::Black)));
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_type(ratatui::widgets::BorderType::Thick)
+                .style(Style::default().fg(Color::Black)),
+        );
     f.render_widget(title, chunks[0]);
 
     // Alert list
     let alerts = app.alert_manager.get_alerts();
-    let items: Vec<ListItem> = alerts.iter()
+    let items: Vec<ListItem> = alerts
+        .iter()
         .enumerate()
         .map(|(i, alert)| {
             let is_selected = i == app.selected_alert_index;
-            let status = if alert.enabled { "[ENABLED]" } else { "[DISABLED]" };
+            let status = if alert.enabled {
+                "[ENABLED]"
+            } else {
+                "[DISABLED]"
+            };
             let condition_str = match &alert.condition {
-                crate::alert::AlertCondition::CpuGreaterThan { threshold, duration_secs } => {
+                crate::alert::AlertCondition::CpuGreaterThan {
+                    threshold,
+                    duration_secs,
+                } => {
                     format!("CPU > {}% for {}s", threshold, duration_secs)
                 }
-                crate::alert::AlertCondition::MemoryGreaterThan { threshold_mb, duration_secs } => {
+                crate::alert::AlertCondition::MemoryGreaterThan {
+                    threshold_mb,
+                    duration_secs,
+                } => {
                     format!("Memory > {}MB for {}s", threshold_mb, duration_secs)
                 }
-                crate::alert::AlertCondition::IoGreaterThan { threshold_mb_per_sec, duration_secs } => {
+                crate::alert::AlertCondition::IoGreaterThan {
+                    threshold_mb_per_sec,
+                    duration_secs,
+                } => {
                     format!("I/O > {}MB/s for {}s", threshold_mb_per_sec, duration_secs)
                 }
                 crate::alert::AlertCondition::ProcessDied { pattern } => {
@@ -4596,7 +5592,10 @@ fn draw_alert_management(f: &mut Frame, app: &mut App, area: Rect) {
                 }
             };
             let style = if is_selected {
-                Style::default().fg(Color::White).bg(Color::Cyan).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::White)
+                    .bg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD)
             } else if alert.enabled {
                 Style::default().fg(Color::Black)
             } else {
@@ -4604,32 +5603,45 @@ fn draw_alert_management(f: &mut Frame, app: &mut App, area: Rect) {
             };
             ListItem::new(Span::styled(
                 format!("{} {}: {}", status, alert.name, condition_str),
-                style
+                style,
             ))
         })
         .collect();
 
     let list = List::new(items)
-        .block(Block::default().borders(Borders::ALL).title("Alerts").style(Style::default().fg(Color::Black)))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Alerts")
+                .style(Style::default().fg(Color::Black)),
+        )
         .style(Style::default());
     f.render_widget(list, chunks[1]);
 
     // Active alerts
     let active_alerts = app.alert_manager.get_active_alerts();
     // Show newest first
-    let alert_items: Vec<ListItem> = active_alerts.iter()
+    let alert_items: Vec<ListItem> = active_alerts
+        .iter()
         .rev() // Reverse iterator
         .take(50) // Limit to 50 most recent
         .map(|alert| {
             ListItem::new(Span::styled(
                 format!("⚠️  {}: {}", alert.alert_name, alert.message),
-                Style::default().fg(Color::Black).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Black)
+                    .add_modifier(Modifier::BOLD),
             ))
         })
         .collect();
 
     let alert_list = List::new(alert_items)
-        .block(Block::default().borders(Borders::ALL).title("Active Alerts").style(Style::default().fg(Color::Black)))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Active Alerts")
+                .style(Style::default().fg(Color::Black)),
+        )
         .style(Style::default());
     f.render_widget(alert_list, chunks[2]);
 
@@ -4644,7 +5656,7 @@ fn draw_alert_management(f: &mut Frame, app: &mut App, area: Rect) {
 fn handle_alert_management_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<dyn Error>> {
     let alerts = app.alert_manager.get_alerts();
     let num_alerts = alerts.len();
-    
+
     match key.code {
         KeyCode::Esc => {
             app.view_mode = ViewMode::ProcessList;
@@ -4664,7 +5676,7 @@ fn handle_alert_management_input(key: KeyEvent, app: &mut App) -> Result<bool, B
             let new_alert = crate::alert::Alert {
                 name: format!("High CPU Alert {}", alerts.len() + 1),
                 condition: crate::alert::AlertCondition::CpuGreaterThan {
-                    threshold: 5.0, // 5% CPU
+                    threshold: 5.0,   // 5% CPU
                     duration_secs: 5, // 5 seconds
                 },
                 target: crate::alert::AlertTarget::All,
@@ -4710,13 +5722,19 @@ fn handle_alert_management_input(key: KeyEvent, app: &mut App) -> Result<bool, B
                 app.alert_edit_mode = true;
                 app.alert_edit_name = alert.name.clone();
                 app.alert_edit_current_field = 0;
-                
+
                 match &alert.condition {
-                    crate::alert::AlertCondition::CpuGreaterThan { threshold, duration_secs } => {
+                    crate::alert::AlertCondition::CpuGreaterThan {
+                        threshold,
+                        duration_secs,
+                    } => {
                         app.alert_edit_threshold = threshold.to_string();
                         app.alert_edit_duration = duration_secs.to_string();
                     }
-                    crate::alert::AlertCondition::MemoryGreaterThan { threshold_mb, duration_secs } => {
+                    crate::alert::AlertCondition::MemoryGreaterThan {
+                        threshold_mb,
+                        duration_secs,
+                    } => {
                         app.alert_edit_threshold = threshold_mb.to_string();
                         app.alert_edit_duration = duration_secs.to_string();
                     }
@@ -4724,7 +5742,10 @@ fn handle_alert_management_input(key: KeyEvent, app: &mut App) -> Result<bool, B
                         app.alert_edit_threshold = "N/A".to_string();
                         app.alert_edit_duration = "N/A".to_string();
                     }
-                    crate::alert::AlertCondition::IoGreaterThan { threshold_mb_per_sec, duration_secs } => {
+                    crate::alert::AlertCondition::IoGreaterThan {
+                        threshold_mb_per_sec,
+                        duration_secs,
+                    } => {
                         app.alert_edit_threshold = threshold_mb_per_sec.to_string();
                         app.alert_edit_duration = duration_secs.to_string();
                     }
@@ -4735,7 +5756,9 @@ fn handle_alert_management_input(key: KeyEvent, app: &mut App) -> Result<bool, B
         KeyCode::Char('-') => {
             // Delete alert
             app.alert_manager.remove_alert(app.selected_alert_index);
-            if app.selected_alert_index >= app.alert_manager.get_alerts().len() && app.selected_alert_index > 0 {
+            if app.selected_alert_index >= app.alert_manager.get_alerts().len()
+                && app.selected_alert_index > 0
+            {
                 app.selected_alert_index -= 1;
             }
         }
@@ -4747,8 +5770,6 @@ fn handle_alert_management_input(key: KeyEvent, app: &mut App) -> Result<bool, B
     }
     Ok(false)
 }
-
-
 
 fn draw_alert_editor(f: &mut Frame, app: &mut App, area: Rect) {
     let chunks = Layout::default()
@@ -4763,45 +5784,68 @@ fn draw_alert_editor(f: &mut Frame, app: &mut App, area: Rect) {
         .split(area);
 
     let title = Paragraph::new("Edit Alert")
-        .style(Style::default().fg(Color::Black).add_modifier(Modifier::BOLD))
+        .style(
+            Style::default()
+                .fg(Color::Black)
+                .add_modifier(Modifier::BOLD),
+        )
         .alignment(Alignment::Center)
-        .block(Block::default().borders(Borders::ALL).style(Style::default().fg(Color::Black)));
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .style(Style::default().fg(Color::Black)),
+        );
     f.render_widget(title, chunks[0]);
 
     let get_style = |idx: usize, color: Color| {
         if app.alert_edit_current_field == idx {
-            Style::default().fg(Color::Black).bg(color).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::Black)
+                .bg(color)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::Black)
         }
     };
 
-    let name_blk = Block::default().borders(Borders::ALL)
-        .title(" Name ").style(Style::default().fg(Color::Black))
+    let name_blk = Block::default()
+        .borders(Borders::ALL)
+        .title(" Name ")
+        .style(Style::default().fg(Color::Black))
         .border_style(get_style(0, Color::Cyan));
     let name = Paragraph::new(app.alert_edit_name.as_str())
-        .block(name_blk).style(get_style(0, Color::Cyan));
+        .block(name_blk)
+        .style(get_style(0, Color::Cyan));
     f.render_widget(name, chunks[1]);
 
-    let thresh_blk = Block::default().borders(Borders::ALL)
-        .title(" Threshold (CPU % or Mem MB) ").style(Style::default().fg(Color::Black))
+    let thresh_blk = Block::default()
+        .borders(Borders::ALL)
+        .title(" Threshold (CPU % or Mem MB) ")
+        .style(Style::default().fg(Color::Black))
         .border_style(get_style(1, Color::Green));
     let thresh = Paragraph::new(app.alert_edit_threshold.as_str())
-        .block(thresh_blk).style(get_style(1, Color::Green));
+        .block(thresh_blk)
+        .style(get_style(1, Color::Green));
     f.render_widget(thresh, chunks[2]);
 
-    let dur_blk = Block::default().borders(Borders::ALL)
-        .title(" Duration (seconds) ").style(Style::default().fg(Color::Black))
+    let dur_blk = Block::default()
+        .borders(Borders::ALL)
+        .title(" Duration (seconds) ")
+        .style(Style::default().fg(Color::Black))
         .border_style(get_style(2, Color::Magenta));
     let dur = Paragraph::new(app.alert_edit_duration.as_str())
-        .block(dur_blk).style(get_style(2, Color::Magenta));
+        .block(dur_blk)
+        .style(get_style(2, Color::Magenta));
     f.render_widget(dur, chunks[3]);
 
-    let inst = Paragraph::new(
-        "Type to edit. [Tab] Next Field. [Enter] Save  |  [Esc] Cancel"
-    )
-    .block(Block::default().borders(Borders::ALL).title(" Instructions ").style(Style::default().fg(Color::Black)))
-    .style(Style::default().fg(Color::Black));
+    let inst = Paragraph::new("Type to edit. [Tab] Next Field. [Enter] Save  |  [Esc] Cancel")
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Instructions ")
+                .style(Style::default().fg(Color::Black)),
+        )
+        .style(Style::default().fg(Color::Black));
     f.render_widget(inst, chunks[4]);
 }
 
@@ -4823,19 +5867,29 @@ fn handle_alert_editor_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<d
         }
         KeyCode::Enter => {
             // Save changes
-            if let Some(alert) = app.alert_manager.get_alerts_mut().get_mut(app.selected_alert_index) {
+            if let Some(alert) = app
+                .alert_manager
+                .get_alerts_mut()
+                .get_mut(app.selected_alert_index)
+            {
                 alert.name = app.alert_edit_name.clone();
-                
+
                 // Parse threshold and duration
                 let threshold_val = app.alert_edit_threshold.parse::<f32>().unwrap_or(0.0);
                 let duration_val = app.alert_edit_duration.parse::<u64>().unwrap_or(0);
-                
+
                 match &mut alert.condition {
-                    crate::alert::AlertCondition::CpuGreaterThan { threshold, duration_secs } => {
+                    crate::alert::AlertCondition::CpuGreaterThan {
+                        threshold,
+                        duration_secs,
+                    } => {
                         *threshold = threshold_val;
                         *duration_secs = duration_val;
                     }
-                    crate::alert::AlertCondition::MemoryGreaterThan { threshold_mb, duration_secs } => {
+                    crate::alert::AlertCondition::MemoryGreaterThan {
+                        threshold_mb,
+                        duration_secs,
+                    } => {
                         *threshold_mb = threshold_val as u64;
                         *duration_secs = duration_val;
                     }
@@ -4845,22 +5899,24 @@ fn handle_alert_editor_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<d
             app.view_mode = ViewMode::AlertManagement;
             app.alert_edit_mode = false;
         }
-        KeyCode::Char(c) => {
-            match app.alert_edit_current_field {
-                0 => app.alert_edit_name.push(c),
-                1 => app.alert_edit_threshold.push(c),
-                2 => app.alert_edit_duration.push(c),
-                _ => {}
+        KeyCode::Char(c) => match app.alert_edit_current_field {
+            0 => app.alert_edit_name.push(c),
+            1 => app.alert_edit_threshold.push(c),
+            2 => app.alert_edit_duration.push(c),
+            _ => {}
+        },
+        KeyCode::Backspace => match app.alert_edit_current_field {
+            0 => {
+                app.alert_edit_name.pop();
             }
-        }
-        KeyCode::Backspace => {
-            match app.alert_edit_current_field {
-                0 => { app.alert_edit_name.pop(); },
-                1 => { app.alert_edit_threshold.pop(); },
-                2 => { app.alert_edit_duration.pop(); },
-                _ => {}
+            1 => {
+                app.alert_edit_threshold.pop();
             }
-        }
+            2 => {
+                app.alert_edit_duration.pop();
+            }
+            _ => {}
+        },
         _ => {}
     }
     Ok(false)
@@ -4872,9 +5928,9 @@ fn draw_checkpoint_management(f: &mut Frame, app: &mut App, area: Rect) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),  // Title
-            Constraint::Min(15),    // Checkpoint list
-            Constraint::Length(3),  // Status/Menu
+            Constraint::Length(3), // Title
+            Constraint::Min(15),   // Checkpoint list
+            Constraint::Length(3), // Status/Menu
         ])
         .split(size);
 
@@ -4885,37 +5941,56 @@ fn draw_checkpoint_management(f: &mut Frame, app: &mut App, area: Rect) {
         " (CRIU Not Available - Install CRIU to use checkpoints)"
     };
     let title = Paragraph::new(format!("Checkpoint Management{}", criu_status))
-        .style(Style::default().fg(if app.criu_manager.is_available() { Color::Green } else { Color::Red }).add_modifier(Modifier::BOLD))
+        .style(
+            Style::default()
+                .fg(if app.criu_manager.is_available() {
+                    Color::Green
+                } else {
+                    Color::Red
+                })
+                .add_modifier(Modifier::BOLD),
+        )
         .alignment(Alignment::Center)
-        .block(Block::default().borders(Borders::ALL).border_type(ratatui::widgets::BorderType::Thick));
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_type(ratatui::widgets::BorderType::Thick),
+        );
     f.render_widget(title, chunks[0]);
 
     // Checkpoint list
     let checkpoints = app.criu_manager.list_checkpoints();
-    let items: Vec<ListItem> = checkpoints.iter()
+    let items: Vec<ListItem> = checkpoints
+        .iter()
         .enumerate()
         .map(|(i, checkpoint)| {
             let is_selected = i == app.selected_checkpoint_index;
             let time_str = format!("Created: {:?}", checkpoint.created_at);
             let style = if is_selected {
-                Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::Black)
             };
             ListItem::new(Span::styled(
-                format!("{} | PID: {} | {} | {}", 
-                    checkpoint.checkpoint_id,
-                    checkpoint.pid,
-                    checkpoint.process_name,
-                    time_str
+                format!(
+                    "{} | PID: {} | {} | {}",
+                    checkpoint.checkpoint_id, checkpoint.pid, checkpoint.process_name, time_str
                 ),
-                style
+                style,
             ))
         })
         .collect();
 
     let list = List::new(items)
-        .block(Block::default().borders(Borders::ALL).title("Checkpoints").style(Style::default().fg(Color::Black)))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Checkpoints")
+                .style(Style::default().fg(Color::Black)),
+        )
         .style(Style::default());
     f.render_widget(list, chunks[1]);
 
@@ -4933,7 +6008,10 @@ fn draw_checkpoint_management(f: &mut Frame, app: &mut App, area: Rect) {
 }
 
 // Handle keyboard input for checkpoint management
-fn handle_checkpoint_management_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<dyn Error>> {
+fn handle_checkpoint_management_input(
+    key: KeyEvent,
+    app: &mut App,
+) -> Result<bool, Box<dyn Error>> {
     if !app.criu_manager.is_available() {
         match key.code {
             KeyCode::Esc => {
@@ -4943,10 +6021,10 @@ fn handle_checkpoint_management_input(key: KeyEvent, app: &mut App) -> Result<bo
         }
         return Ok(false);
     }
-    
+
     let checkpoints = app.criu_manager.list_checkpoints();
     let num_checkpoints = checkpoints.len();
-    
+
     match key.code {
         KeyCode::Esc => {
             app.view_mode = ViewMode::ProcessList;
@@ -4965,32 +6043,35 @@ fn handle_checkpoint_management_input(key: KeyEvent, app: &mut App) -> Result<bo
             // Create checkpoint for selected process
             let processes = app.process_manager.get_processes();
             if let Some(process) = processes.get(app.selected_process_index) {
-                match app.criu_manager.checkpoint_process(
-                    process.pid,
-                    &process.name,
-                    None
-                ) {
+                match app
+                    .criu_manager
+                    .checkpoint_process(process.pid, &process.name, None)
+                {
                     Ok(checkpoint) => {
                         app.input_state.message = Some((
-                            format!("Checkpoint created: {} for PID {}", checkpoint.checkpoint_id, process.pid),
-                            false
+                            format!(
+                                "Checkpoint created: {} for PID {}",
+                                checkpoint.checkpoint_id, process.pid
+                            ),
+                            false,
                         ));
-                        app.input_state.message_timeout = Some(std::time::Instant::now() + Duration::from_secs(3));
+                        app.input_state.message_timeout =
+                            Some(std::time::Instant::now() + Duration::from_secs(3));
                     }
                     Err(e) => {
-                        app.input_state.message = Some((
-                            format!("Failed to create checkpoint: {}", e),
-                            true
-                        ));
-                        app.input_state.message_timeout = Some(std::time::Instant::now() + Duration::from_secs(3));
+                        app.input_state.message =
+                            Some((format!("Failed to create checkpoint: {}", e), true));
+                        app.input_state.message_timeout =
+                            Some(std::time::Instant::now() + Duration::from_secs(3));
                     }
                 }
             } else {
                 app.input_state.message = Some((
                     "No process selected. Please select a process first.".to_string(),
-                    true
+                    true,
                 ));
-                app.input_state.message_timeout = Some(std::time::Instant::now() + Duration::from_secs(2));
+                app.input_state.message_timeout =
+                    Some(std::time::Instant::now() + Duration::from_secs(2));
             }
         }
         KeyCode::Enter => {
@@ -4999,17 +6080,20 @@ fn handle_checkpoint_management_input(key: KeyEvent, app: &mut App) -> Result<bo
                 match app.criu_manager.restore_process(&checkpoint.checkpoint_id) {
                     Ok(pid) => {
                         app.input_state.message = Some((
-                            format!("Process restored from checkpoint: {} (PID: {})", checkpoint.checkpoint_id, pid),
-                            false
+                            format!(
+                                "Process restored from checkpoint: {} (PID: {})",
+                                checkpoint.checkpoint_id, pid
+                            ),
+                            false,
                         ));
-                        app.input_state.message_timeout = Some(std::time::Instant::now() + Duration::from_secs(3));
+                        app.input_state.message_timeout =
+                            Some(std::time::Instant::now() + Duration::from_secs(3));
                     }
                     Err(e) => {
-                        app.input_state.message = Some((
-                            format!("Failed to restore checkpoint: {}", e),
-                            true
-                        ));
-                        app.input_state.message_timeout = Some(std::time::Instant::now() + Duration::from_secs(3));
+                        app.input_state.message =
+                            Some((format!("Failed to restore checkpoint: {}", e), true));
+                        app.input_state.message_timeout =
+                            Some(std::time::Instant::now() + Duration::from_secs(3));
                     }
                 }
             }
@@ -5017,23 +6101,29 @@ fn handle_checkpoint_management_input(key: KeyEvent, app: &mut App) -> Result<bo
         KeyCode::Char('-') => {
             // Delete checkpoint
             if let Some(checkpoint) = checkpoints.get(app.selected_checkpoint_index) {
-                match app.criu_manager.delete_checkpoint(&checkpoint.checkpoint_id) {
+                match app
+                    .criu_manager
+                    .delete_checkpoint(&checkpoint.checkpoint_id)
+                {
                     Ok(_) => {
                         app.input_state.message = Some((
                             format!("Checkpoint deleted: {}", checkpoint.checkpoint_id),
-                            false
+                            false,
                         ));
-                        app.input_state.message_timeout = Some(std::time::Instant::now() + Duration::from_secs(2));
-                        if app.selected_checkpoint_index >= app.criu_manager.list_checkpoints().len() && app.selected_checkpoint_index > 0 {
+                        app.input_state.message_timeout =
+                            Some(std::time::Instant::now() + Duration::from_secs(2));
+                        if app.selected_checkpoint_index
+                            >= app.criu_manager.list_checkpoints().len()
+                            && app.selected_checkpoint_index > 0
+                        {
                             app.selected_checkpoint_index -= 1;
                         }
                     }
                     Err(e) => {
-                        app.input_state.message = Some((
-                            format!("Failed to delete checkpoint: {}", e),
-                            true
-                        ));
-                        app.input_state.message_timeout = Some(std::time::Instant::now() + Duration::from_secs(2));
+                        app.input_state.message =
+                            Some((format!("Failed to delete checkpoint: {}", e), true));
+                        app.input_state.message_timeout =
+                            Some(std::time::Instant::now() + Duration::from_secs(2));
                     }
                 }
             }
@@ -5049,23 +6139,33 @@ fn draw_host_management(f: &mut Frame, app: &mut App, area: Rect) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),  // Title
+            Constraint::Length(3), // Title
             Constraint::Min(15),   // Host list
-            Constraint::Length(5),  // Input/Status
-            Constraint::Length(3),  // Menu
+            Constraint::Length(5), // Input/Status
+            Constraint::Length(3), // Menu
         ])
         .split(size);
 
     // Title
     let title = Paragraph::new("Host Management")
-        .style(Style::default().fg(Color::Black).add_modifier(Modifier::BOLD))
+        .style(
+            Style::default()
+                .fg(Color::Black)
+                .add_modifier(Modifier::BOLD),
+        )
         .alignment(Alignment::Center)
-        .block(Block::default().borders(Borders::ALL).border_type(ratatui::widgets::BorderType::Thick).style(Style::default().fg(Color::Black)));
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_type(ratatui::widgets::BorderType::Thick)
+                .style(Style::default().fg(Color::Black)),
+        );
     f.render_widget(title, chunks[0]);
 
     // Host list
     let hosts = app.coordinator.get_hosts();
-    let items: Vec<ListItem> = hosts.iter()
+    let items: Vec<ListItem> = hosts
+        .iter()
         .enumerate()
         .map(|(i, host)| {
             let is_selected = i == app.selected_host_index;
@@ -5075,20 +6175,37 @@ fn draw_host_management(f: &mut Frame, app: &mut App, area: Rect) {
                 "[DISCONNECTED]"
             };
             let style = if is_selected {
-                Style::default().fg(Color::White).bg(Color::Cyan).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::White)
+                    .bg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::Black)
             };
             ListItem::new(Span::styled(
-                format!("{} {} ({}) - {}", status, host.name, host.address, 
-                    if host.connected { "Connected" } else { "Not Connected" }),
-                style
+                format!(
+                    "{} {} ({}) - {}",
+                    status,
+                    host.name,
+                    host.address,
+                    if host.connected {
+                        "Connected"
+                    } else {
+                        "Not Connected"
+                    }
+                ),
+                style,
             ))
         })
         .collect();
 
     let list = List::new(items)
-        .block(Block::default().borders(Borders::ALL).title("Remote Hosts").style(Style::default().fg(Color::Black)))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Remote Hosts")
+                .style(Style::default().fg(Color::Black)),
+        )
         .style(Style::default());
     f.render_widget(list, chunks[1]);
 
@@ -5100,14 +6217,25 @@ fn draw_host_management(f: &mut Frame, app: &mut App, area: Rect) {
     };
     let input_para = Paragraph::new(input_text)
         .style(Style::default().fg(Color::Black))
-        .block(Block::default().borders(Borders::ALL).title("Add Host").style(Style::default().fg(Color::Black)));
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Add Host")
+                .style(Style::default().fg(Color::Black)),
+        );
     f.render_widget(input_para, chunks[2]);
 
     // Menu
-    let menu = Paragraph::new("[+] Add Host  |  [Enter] Add  |  [-] Remove  |  [T] Toggle Multi-Host  |  [Esc] Back")
-        .block(Block::default().borders(Borders::ALL).style(Style::default().fg(Color::Black)))
-        .style(Style::default().fg(Color::Black))
-        .alignment(Alignment::Left);
+    let menu = Paragraph::new(
+        "[+] Add Host  |  [Enter] Add  |  [-] Remove  |  [T] Toggle Multi-Host  |  [Esc] Back",
+    )
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .style(Style::default().fg(Color::Black)),
+    )
+    .style(Style::default().fg(Color::Black))
+    .alignment(Alignment::Left);
     f.render_widget(menu, chunks[3]);
 }
 
@@ -5115,7 +6243,7 @@ fn draw_host_management(f: &mut Frame, app: &mut App, area: Rect) {
 fn handle_host_management_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<dyn Error>> {
     let hosts = app.coordinator.get_hosts();
     let num_hosts = hosts.len();
-    
+
     match key.code {
         KeyCode::Esc => {
             app.view_mode = ViewMode::ProcessList;
@@ -5138,12 +6266,16 @@ fn handle_host_management_input(key: KeyEvent, app: &mut App) -> Result<bool, Bo
                 let name = address.clone();
                 app.coordinator.add_host(address.clone(), name);
                 app.host_input.clear();
-                
+
                 app.input_state.message = Some((
-                    format!("Host added: {}. Connection will be tested on refresh.", address),
-                    false
+                    format!(
+                        "Host added: {}. Connection will be tested on refresh.",
+                        address
+                    ),
+                    false,
                 ));
-                app.input_state.message_timeout = Some(std::time::Instant::now() + Duration::from_secs(2));
+                app.input_state.message_timeout =
+                    Some(std::time::Instant::now() + Duration::from_secs(2));
             }
         }
         KeyCode::Char(c) => {
@@ -5157,10 +6289,14 @@ fn handle_host_management_input(key: KeyEvent, app: &mut App) -> Result<bool, Bo
                 match c {
                     '-' => {
                         // Remove host
-                        let host_address = hosts.get(app.selected_host_index).map(|h| h.address.clone());
+                        let host_address = hosts
+                            .get(app.selected_host_index)
+                            .map(|h| h.address.clone());
                         if let Some(address) = host_address {
                             app.coordinator.remove_host(&address);
-                            if app.selected_host_index >= app.coordinator.get_hosts().len() && app.selected_host_index > 0 {
+                            if app.selected_host_index >= app.coordinator.get_hosts().len()
+                                && app.selected_host_index > 0
+                            {
                                 app.selected_host_index -= 1;
                             }
                         }
@@ -5170,10 +6306,14 @@ fn handle_host_management_input(key: KeyEvent, app: &mut App) -> Result<bool, Bo
                         app.multi_host_mode = !app.multi_host_mode;
                         app.view_mode = ViewMode::ProcessList;
                         app.input_state.message = Some((
-                            format!("Multi-host mode: {}", if app.multi_host_mode { "ON" } else { "OFF" }),
-                            false
+                            format!(
+                                "Multi-host mode: {}",
+                                if app.multi_host_mode { "ON" } else { "OFF" }
+                            ),
+                            false,
                         ));
-                        app.input_state.message_timeout = Some(std::time::Instant::now() + Duration::from_secs(2));
+                        app.input_state.message_timeout =
+                            Some(std::time::Instant::now() + Duration::from_secs(2));
                     }
                     '+' => {
                         // Focus input field (clear and ready for input)
@@ -5203,41 +6343,67 @@ fn draw_task_editor(f: &mut Frame, app: &mut App, area: Rect) {
             Constraint::Length(3),  // Title
             Constraint::Length(15), // Input fields
             Constraint::Min(5),     // Instructions
-            Constraint::Length(3),   // Menu
+            Constraint::Length(3),  // Menu
         ])
         .split(size);
 
     // Title
     let title = Paragraph::new("Create Scheduled Task")
-        .style(Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))
+        .style(
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        )
         .alignment(Alignment::Center)
-        .block(Block::default().borders(Borders::ALL).border_type(ratatui::widgets::BorderType::Thick));
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_type(ratatui::widgets::BorderType::Thick),
+        );
     f.render_widget(title, chunks[0]);
 
     // Input fields
     let field_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),  // Task name
-            Constraint::Length(3),  // Schedule type
-            Constraint::Length(3),  // Schedule value
-            Constraint::Length(3),  // Action type
-            Constraint::Length(3),  // Action value
+            Constraint::Length(3), // Task name
+            Constraint::Length(3), // Schedule type
+            Constraint::Length(3), // Schedule value
+            Constraint::Length(3), // Action type
+            Constraint::Length(3), // Action value
         ])
         .split(chunks[1]);
 
     let fields = [
         ("Task Name", &app.input_state.task_name, 0),
-        ("Schedule Type (cron/interval/once)", &app.input_state.task_schedule_type, 1),
-        ("Schedule Value (e.g., '0 * * * *' or '60')", &app.input_state.task_schedule_value, 2),
-        ("Action Type (restart/start/cleanup/rule)", &app.input_state.task_action_type, 3),
-        ("Action Value (pattern/program/params/rule)", &app.input_state.task_action_value, 4),
+        (
+            "Schedule Type (cron/interval/once)",
+            &app.input_state.task_schedule_type,
+            1,
+        ),
+        (
+            "Schedule Value (e.g., '0 * * * *' or '60')",
+            &app.input_state.task_schedule_value,
+            2,
+        ),
+        (
+            "Action Type (restart/start/cleanup/rule)",
+            &app.input_state.task_action_type,
+            3,
+        ),
+        (
+            "Action Value (pattern/program/params/rule)",
+            &app.input_state.task_action_value,
+            4,
+        ),
     ];
 
     for (i, (label, value, field_idx)) in fields.iter().enumerate() {
         let is_active = app.input_state.current_task_field == *field_idx;
         let style = if is_active {
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::Black)
         };
@@ -5251,16 +6417,35 @@ fn draw_task_editor(f: &mut Frame, app: &mut App, area: Rect) {
 
     // Instructions
     let instructions = vec![
-        Line::from(vec![Span::styled("Instructions:", Style::default().fg(Color::Black).add_modifier(Modifier::BOLD))]),
+        Line::from(vec![Span::styled(
+            "Instructions:",
+            Style::default()
+                .fg(Color::Black)
+                .add_modifier(Modifier::BOLD),
+        )]),
         Line::from(vec![Span::raw("1. Enter task name (e.g., 'Test Restart')")]),
-        Line::from(vec![Span::raw("2. Schedule Type: 'cron' (e.g., '0 * * * *'), 'interval' (seconds), or 'once' (timestamp)")]),
-        Line::from(vec![Span::raw("3. Schedule Value: cron expression, interval in seconds, or timestamp")]),
-        Line::from(vec![Span::raw("4. Action Type: 'restart' (kill process), 'start' (start process), 'cleanup' (cleanup idle), or 'rule' (apply rule)")]),
-        Line::from(vec![Span::raw("5. Action Value: pattern (restart), program name/path (start), cleanup params, or rule expression")]),
-        Line::from(vec![Span::raw("6. Press [Tab] to switch fields, [Enter] to save task, [Esc] to cancel")]),
+        Line::from(vec![Span::raw(
+            "2. Schedule Type: 'cron' (e.g., '0 * * * *'), 'interval' (seconds), or 'once' (timestamp)",
+        )]),
+        Line::from(vec![Span::raw(
+            "3. Schedule Value: cron expression, interval in seconds, or timestamp",
+        )]),
+        Line::from(vec![Span::raw(
+            "4. Action Type: 'restart' (kill process), 'start' (start process), 'cleanup' (cleanup idle), or 'rule' (apply rule)",
+        )]),
+        Line::from(vec![Span::raw(
+            "5. Action Value: pattern (restart), program name/path (start), cleanup params, or rule expression",
+        )]),
+        Line::from(vec![Span::raw(
+            "6. Press [Tab] to switch fields, [Enter] to save task, [Esc] to cancel",
+        )]),
     ];
-    let inst_para = Paragraph::new(instructions)
-        .block(Block::default().borders(Borders::ALL).title("Instructions").style(Style::default().fg(Color::Black)));
+    let inst_para = Paragraph::new(instructions).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title("Instructions")
+            .style(Style::default().fg(Color::Black)),
+    );
     f.render_widget(inst_para, chunks[2]);
 
     // Menu
@@ -5293,16 +6478,24 @@ fn handle_task_editor_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<dy
                 _ => {}
             }
         }
-        KeyCode::Backspace => {
-            match app.input_state.current_task_field {
-                0 => { app.input_state.task_name.pop(); }
-                1 => { app.input_state.task_schedule_type.pop(); }
-                2 => { app.input_state.task_schedule_value.pop(); }
-                3 => { app.input_state.task_action_type.pop(); }
-                4 => { app.input_state.task_action_value.pop(); }
-                _ => {}
+        KeyCode::Backspace => match app.input_state.current_task_field {
+            0 => {
+                app.input_state.task_name.pop();
             }
-        }
+            1 => {
+                app.input_state.task_schedule_type.pop();
+            }
+            2 => {
+                app.input_state.task_schedule_value.pop();
+            }
+            3 => {
+                app.input_state.task_action_type.pop();
+            }
+            4 => {
+                app.input_state.task_action_value.pop();
+            }
+            _ => {}
+        },
         KeyCode::Enter => {
             // Validate and create task
             if app.input_state.task_name.trim().is_empty() {
@@ -5311,73 +6504,109 @@ fn handle_task_editor_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<dy
             }
 
             // Parse schedule
-            let schedule = match app.input_state.task_schedule_type.trim().to_lowercase().as_str() {
+            let schedule = match app
+                .input_state
+                .task_schedule_type
+                .trim()
+                .to_lowercase()
+                .as_str()
+            {
                 "cron" => {
                     if app.input_state.task_schedule_value.trim().is_empty() {
-                        app.input_state.message = Some(("Cron expression is required".to_string(), true));
+                        app.input_state.message =
+                            Some(("Cron expression is required".to_string(), true));
                         return Ok(false);
                     }
-                    crate::scheduler::ScheduleType::Cron(app.input_state.task_schedule_value.trim().to_string())
+                    crate::scheduler::ScheduleType::Cron(
+                        app.input_state.task_schedule_value.trim().to_string(),
+                    )
                 }
-                "interval" => {
-                    match app.input_state.task_schedule_value.trim().parse::<u64>() {
-                        Ok(secs) => crate::scheduler::ScheduleType::Interval(secs),
-                        Err(_) => {
-                            app.input_state.message = Some(("Invalid interval value (must be a number)".to_string(), true));
-                            return Ok(false);
-                        }
+                "interval" => match app.input_state.task_schedule_value.trim().parse::<u64>() {
+                    Ok(secs) => crate::scheduler::ScheduleType::Interval(secs),
+                    Err(_) => {
+                        app.input_state.message = Some((
+                            "Invalid interval value (must be a number)".to_string(),
+                            true,
+                        ));
+                        return Ok(false);
                     }
-                }
-                "once" => {
-                    match app.input_state.task_schedule_value.trim().parse::<u64>() {
-                        Ok(timestamp) => {
-                            use std::time::{UNIX_EPOCH, Duration};
-                            crate::scheduler::ScheduleType::Once(UNIX_EPOCH + Duration::from_secs(timestamp))
-                        }
-                        Err(_) => {
-                            app.input_state.message = Some(("Invalid timestamp value (must be a number)".to_string(), true));
-                            return Ok(false);
-                        }
+                },
+                "once" => match app.input_state.task_schedule_value.trim().parse::<u64>() {
+                    Ok(timestamp) => {
+                        use std::time::{Duration, UNIX_EPOCH};
+                        crate::scheduler::ScheduleType::Once(
+                            UNIX_EPOCH + Duration::from_secs(timestamp),
+                        )
                     }
-                }
+                    Err(_) => {
+                        app.input_state.message = Some((
+                            "Invalid timestamp value (must be a number)".to_string(),
+                            true,
+                        ));
+                        return Ok(false);
+                    }
+                },
                 _ => {
-                    app.input_state.message = Some(("Invalid schedule type (must be 'cron', 'interval', or 'once')".to_string(), true));
+                    app.input_state.message = Some((
+                        "Invalid schedule type (must be 'cron', 'interval', or 'once')".to_string(),
+                        true,
+                    ));
                     return Ok(false);
                 }
             };
 
             // Parse action
-            let action = match app.input_state.task_action_type.trim().to_lowercase().as_str() {
+            let action = match app
+                .input_state
+                .task_action_type
+                .trim()
+                .to_lowercase()
+                .as_str()
+            {
                 "restart" => {
                     if app.input_state.task_action_value.trim().is_empty() {
-                        app.input_state.message = Some(("Process pattern is required for restart action".to_string(), true));
+                        app.input_state.message = Some((
+                            "Process pattern is required for restart action".to_string(),
+                            true,
+                        ));
                         return Ok(false);
                     }
                     crate::scheduler::ScheduleAction::RestartProcess {
-                        pattern: app.input_state.task_action_value.trim().to_string()
+                        pattern: app.input_state.task_action_value.trim().to_string(),
                     }
                 }
                 "start" => {
                     if app.input_state.task_action_value.trim().is_empty() {
-                        app.input_state.message = Some(("Program name/path is required for start action".to_string(), true));
+                        app.input_state.message = Some((
+                            "Program name/path is required for start action".to_string(),
+                            true,
+                        ));
                         return Ok(false);
                     }
                     // Parse program and optional arguments (space-separated)
-                    let parts: Vec<String> = app.input_state.task_action_value.trim().split_whitespace().map(|s| s.to_string()).collect();
+                    let parts: Vec<String> = app
+                        .input_state
+                        .task_action_value
+                        .trim()
+                        .split_whitespace()
+                        .map(|s| s.to_string())
+                        .collect();
                     let program = parts[0].clone();
                     let args = if parts.len() > 1 {
                         parts[1..].to_vec()
                     } else {
                         Vec::new()
                     };
-                    crate::scheduler::ScheduleAction::StartProcess {
-                        program,
-                        args,
-                    }
+                    crate::scheduler::ScheduleAction::StartProcess { program, args }
                 }
                 "cleanup" => {
                     // Parse cleanup params: "cpu_threshold,memory_threshold,duration,action"
-                    let parts: Vec<&str> = app.input_state.task_action_value.split(',').map(|s| s.trim()).collect();
+                    let parts: Vec<&str> = app
+                        .input_state
+                        .task_action_value
+                        .split(',')
+                        .map(|s| s.trim())
+                        .collect();
                     if parts.len() != 4 {
                         app.input_state.message = Some(("Cleanup requires: cpu_threshold,memory_threshold,duration_seconds,action".to_string(), true));
                         return Ok(false);
@@ -5395,15 +6624,20 @@ fn handle_task_editor_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<dy
                 }
                 "rule" => {
                     if app.input_state.task_action_value.trim().is_empty() {
-                        app.input_state.message = Some(("Rule expression is required".to_string(), true));
+                        app.input_state.message =
+                            Some(("Rule expression is required".to_string(), true));
                         return Ok(false);
                     }
                     crate::scheduler::ScheduleAction::ApplyRule {
-                        rule: app.input_state.task_action_value.trim().to_string()
+                        rule: app.input_state.task_action_value.trim().to_string(),
                     }
                 }
                 _ => {
-                    app.input_state.message = Some(("Invalid action type (must be 'restart', 'start', 'cleanup', or 'rule')".to_string(), true));
+                    app.input_state.message = Some((
+                        "Invalid action type (must be 'restart', 'start', 'cleanup', or 'rule')"
+                            .to_string(),
+                        true,
+                    ));
                     return Ok(false);
                 }
             };
@@ -5415,10 +6649,11 @@ fn handle_task_editor_input(key: KeyEvent, app: &mut App) -> Result<bool, Box<dy
                 action,
             );
             app.scheduler.add_task(task.clone());
-            
+
             app.view_mode = ViewMode::Scheduler;
-            app.input_state.message = Some((format!("Task '{}' created successfully", task.name), false));
-            
+            app.input_state.message =
+                Some((format!("Task '{}' created successfully", task.name), false));
+
             // Clear fields
             app.input_state.task_name.clear();
             app.input_state.task_schedule_type.clear();

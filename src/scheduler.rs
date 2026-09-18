@@ -5,30 +5,42 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[derive(Clone, Debug)]
 pub enum ScheduleType {
-    Cron(String),        // Cron expression like "0 * * * *"
-    Interval(u64),      // Interval in seconds
-    Once(SystemTime),   // Run once at specific time
+    Cron(String),     // Cron expression like "0 * * * *"
+    Interval(u64),    // Interval in seconds
+    Once(SystemTime), // Run once at specific time
 }
-
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ScheduleAction {
-    RestartProcess { pattern: String },
-    StartProcess { 
-        program: String,         // Program path or command (e.g., "firefox" or "/usr/bin/firefox")
-        args: Vec<String>,      // Command arguments (empty vec if none)
+    RestartProcess {
+        pattern: String,
     },
-    CleanupIdle { 
-        cpu_threshold: f32,      // CPU < threshold
-        memory_threshold: u64,   // Memory > threshold (bytes)
-        duration_seconds: u64,   // For Y minutes
-        action: String,          // "kill", "stop", or "lower_priority"
+    StartProcess {
+        program: String,   // Program path or command (e.g., "firefox" or "/usr/bin/firefox")
+        args: Vec<String>, // Command arguments (empty vec if none)
     },
-    ApplyRule { rule: String },
-    KillProcess { pid: u32 },
-    StopProcess { pid: u32 },
-    ContinueProcess { pid: u32 },
-    ReniceProcess { pid: u32, nice: i32 },
+    CleanupIdle {
+        cpu_threshold: f32,    // CPU < threshold
+        memory_threshold: u64, // Memory > threshold (bytes)
+        duration_seconds: u64, // For Y minutes
+        action: String,        // "kill", "stop", or "lower_priority"
+    },
+    ApplyRule {
+        rule: String,
+    },
+    KillProcess {
+        pid: u32,
+    },
+    StopProcess {
+        pid: u32,
+    },
+    ContinueProcess {
+        pid: u32,
+    },
+    ReniceProcess {
+        pid: u32,
+        nice: i32,
+    },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -54,12 +66,8 @@ mod schedule_type_serde {
         S: Serializer,
     {
         match schedule {
-            ScheduleType::Cron(expr) => {
-                serializer.serialize_str(&format!("cron:{}", expr))
-            }
-            ScheduleType::Interval(secs) => {
-                serializer.serialize_str(&format!("interval:{}", secs))
-            }
+            ScheduleType::Cron(expr) => serializer.serialize_str(&format!("cron:{}", expr)),
+            ScheduleType::Interval(secs) => serializer.serialize_str(&format!("interval:{}", secs)),
             ScheduleType::Once(time) => {
                 let duration = time.duration_since(UNIX_EPOCH).unwrap_or_default();
                 serializer.serialize_str(&format!("once:{}", duration.as_secs()))
@@ -191,22 +199,28 @@ impl Scheduler {
                         // This is a simplified version - full cron would need proper parsing
                         let minute_str = parts[0];
                         let hour_str = parts[1];
-                        
+
                         // Get current time components
                         use std::time::UNIX_EPOCH;
                         if let Ok(duration) = now.duration_since(UNIX_EPOCH) {
                             let total_seconds = duration.as_secs();
                             let current_minute = (total_seconds / 60) % 60;
                             let current_hour = (total_seconds / 3600) % 24;
-                            
+
                             // Check if minute matches (if not "*")
-                            let minute_matches = minute_str == "*" || 
-                                minute_str.parse::<u64>().map(|m| m == current_minute).unwrap_or(false);
-                            
+                            let minute_matches = minute_str == "*"
+                                || minute_str
+                                    .parse::<u64>()
+                                    .map(|m| m == current_minute)
+                                    .unwrap_or(false);
+
                             // Check if hour matches (if not "*")
-                            let hour_matches = hour_str == "*" || 
-                                hour_str.parse::<u64>().map(|h| h == current_hour).unwrap_or(false);
-                            
+                            let hour_matches = hour_str == "*"
+                                || hour_str
+                                    .parse::<u64>()
+                                    .map(|h| h == current_hour)
+                                    .unwrap_or(false);
+
                             // For simplicity, if both minute and hour are "*", run every minute
                             // Otherwise, check if we match the specified time
                             if minute_str == "*" && hour_str == "*" {
@@ -274,9 +288,10 @@ impl Scheduler {
 
 /// Load scheduler tasks from config file
 pub fn load_tasks() -> Vec<ScheduledTask> {
-    let config_path = std::path::Path::new(&std::env::var("HOME").unwrap_or_else(|_| ".".to_string()))
-        .join(".lpm")
-        .join("scheduled_tasks.toml");
+    let config_path =
+        std::path::Path::new(&std::env::var("HOME").unwrap_or_else(|_| ".".to_string()))
+            .join(".lpm")
+            .join("scheduled_tasks.toml");
 
     if let Ok(content) = std::fs::read_to_string(&config_path) {
         if let Ok(tasks) = toml::from_str::<Vec<ScheduledTask>>(&content) {
@@ -288,15 +303,15 @@ pub fn load_tasks() -> Vec<ScheduledTask> {
 
 /// Save scheduler tasks to config file
 pub fn save_tasks(tasks: &[ScheduledTask]) -> std::io::Result<()> {
-    let config_dir = std::path::Path::new(&std::env::var("HOME").unwrap_or_else(|_| ".".to_string()))
-        .join(".lpm");
-    
+    let config_dir =
+        std::path::Path::new(&std::env::var("HOME").unwrap_or_else(|_| ".".to_string()))
+            .join(".lpm");
+
     std::fs::create_dir_all(&config_dir)?;
-    
+
     let config_path = config_dir.join("scheduled_tasks.toml");
     let toml_string = toml::to_string_pretty(tasks)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-    
+
     std::fs::write(config_path, toml_string)
 }
-
