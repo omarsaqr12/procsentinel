@@ -13,7 +13,9 @@ jobs:
         with:
           ref: fix/criu-checkpoint-safety-20260918
       - name: Apply guarded repair
-        run: python3 .github/repair/apply_fixes.py
+        run: |
+          python3 .github/repair/apply_fixes.py
+          python3 .github/repair/fix_type.py
       - name: Format repaired module
         run: rustfmt --edition 2024 src/criu_manager.rs
       - name: Check diff whitespace
@@ -26,7 +28,7 @@ jobs:
         run: rustfmt --edition 2024 --check src/criu_manager.rs
       - name: Remove one-time repair machinery and commit verified fix
         run: |
-          rm -f .github/repair/apply_fixes.py .github/workflows/one-time-criu-safety-repair.yml
+          rm -f .github/repair/apply_fixes.py .github/repair/fix_type.py .github/workflows/one-time-criu-safety-repair.yml
           rmdir .github/repair 2>/dev/null || true
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
