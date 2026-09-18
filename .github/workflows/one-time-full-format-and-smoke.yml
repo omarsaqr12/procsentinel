@@ -13,6 +13,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: fix/criu-checkpoint-safety-20260918
+      - name: Remove legacy trailing whitespace from Rust sources
+        run: find src -type f -name '*.rs' -print0 | xargs -0 sed -i 's/[[:space:]]\+$//'
       - name: Apply repository-wide Rust formatting
         run: cargo fmt --all
       - name: Verify formatting
