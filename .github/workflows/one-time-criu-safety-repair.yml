@@ -1,0 +1,35 @@
+name: One-time CRIU safety repair
+on:
+  push:
+    branches:
+      - fix/criu-checkpoint-safety-20260918
+permissions:
+  contents: write
+jobs:
+  repair-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/criu-checkpoint-safety-20260918
+      - name: Apply guarded repair
+        run: python3 .github/repair/apply_fixes.py
+      - name: Format repaired module
+        run: rustfmt --edition 2024 src/criu_manager.rs
+      - name: Check diff whitespace
+        run: git diff --check
+      - name: Compile
+        run: cargo check --locked
+      - name: Run tests
+        run: cargo test --locked
+      - name: Verify repaired module formatting
+        run: rustfmt --edition 2024 --check src/criu_manager.rs
+      - name: Remove one-time repair machinery and commit verified fix
+        run: |
+          rm -f .github/repair/apply_fixes.py .github/workflows/one-time-criu-safety-repair.yml
+          rmdir .github/repair 2>/dev/null || true
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Harden CRIU checkpoint paths and restore PID handling"
+          git push origin HEAD:fix/criu-checkpoint-safety-20260918
