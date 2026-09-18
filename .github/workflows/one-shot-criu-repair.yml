@@ -13,6 +13,17 @@ jobs:
       - uses: actions/checkout@v4
       - name: Apply baseline-checked checkpoint safety patch
         run: python3 .github/criu_safety_once.py
+      - name: Type the deserialized checkpoint ID explicitly
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/criu_manager.rs')
+          s = p.read_text()
+          old = '                let mut checkpoint_id = None;'
+          assert s.count(old) == 1
+          p.write_text(s.replace(old, '                let mut checkpoint_id: Option<String> = None;', 1))
+          PY
       - name: Format only the modified module
         run: rustfmt --edition 2024 src/criu_manager.rs
       - name: Check resulting patch
