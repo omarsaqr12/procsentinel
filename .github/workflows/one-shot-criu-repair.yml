@@ -25,6 +25,8 @@ jobs:
               assert s.count(old) == 1, f'Expected unique anchor: {old!r}, found {s.count(old)}'
               s = s.replace(old, new, 1)
           replace_exact('                let mut checkpoint_id = None;', '                let mut checkpoint_id: Option<String> = None;')
+          replace_exact('while let Some(key) = map.next_key()? {', 'while let Some(key) = map.next_key::<String>()? {')
+          replace_exact('                    match key {', '                    match key.as_str() {')
           replace_exact('pub struct CriuManager {', '''#[derive(Serialize, Deserialize)]
           struct CheckpointListFile {
               checkpoints: Vec<CheckpointInfo>,
@@ -55,8 +57,8 @@ jobs:
                   };
                   manager.save_all_checkpoints_metadata(&[info]).unwrap();
                   let raw = std::fs::read_to_string(manager.checkpoint_base_dir.join("checkpoints.toml")).unwrap();
-                  eprintln!("Fixture metadata: {raw}");
-                  eprintln!("Fixture parse: {:?}", toml::from_str::<CheckpointListFile>(&raw).map(|f| f.checkpoints.len()));
+                  let parsed = toml::from_str::<CheckpointListFile>(&raw).unwrap();
+                  assert_eq!(parsed.checkpoints[0].pid, 123);
                   let restored = manager.list_checkpoints();
                   assert_eq!(restored.len(), 1);
                   assert_eq!(restored[0].pid, 123);
