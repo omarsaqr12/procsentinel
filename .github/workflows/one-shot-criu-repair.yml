@@ -25,7 +25,6 @@ jobs:
               assert s.count(old) == 1, f'Expected unique anchor: {old!r}, found {s.count(old)}'
               s = s.replace(old, new, 1)
           replace_exact('                let mut checkpoint_id = None;', '                let mut checkpoint_id: Option<String> = None;')
-          replace_exact('    pub created_at: SystemTime,', '    #[serde(skip_serializing)]\n    pub created_at: SystemTime,')
           replace_exact('pub struct CriuManager {', '''#[derive(Serialize, Deserialize)]
           struct CheckpointListFile {
               checkpoints: Vec<CheckpointInfo>,
