@@ -1,0 +1,32 @@
+name: One-time CRIU security repair
+on:
+  push:
+    branches: [fix/criu-checkpoint-boundaries-20260918]
+permissions:
+  contents: write
+jobs:
+  repair:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply baseline-checked checkpoint safety patch
+        run: python3 .github/criu_safety_once.py
+      - name: Format only the modified module
+        run: rustfmt --edition 2024 src/criu_manager.rs
+      - name: Check resulting patch
+        run: git diff --check && git diff --stat
+      - name: Compile
+        run: cargo check --locked
+      - name: Unit tests (including disposable checkpoint security tests)
+        run: cargo test --locked
+      - name: Commit only verified CRIU source to this feature branch
+        shell: bash
+        run: |
+          test "$GITHUB_REF_NAME" = fix/criu-checkpoint-boundaries-20260918
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/criu_manager.rs
+          git commit -m 'fix: confine checkpoint IDs and require real restored PIDs'
+          git push origin HEAD:"$GITHUB_REF_NAME"
