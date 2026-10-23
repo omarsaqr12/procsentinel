@@ -1,4 +1,8 @@
-# CRIU checkpoint path safety — unresolved, high priority
+# Historical CRIU checkpoint-path finding — September 16 baseline
+
+> Later ID/path and restored-PID guards were merged in PR 4. This document
+> preserves the original finding; see [current status](CURRENT_STATUS.md) for
+> implemented protections and remaining race/confinement work.
 
 Source: [`src/criu_manager.rs`](../src/criu_manager.rs), baseline `15dddb6236c8a665644fcbc056a7e3681906041b`. This is a confirmed code-path defect from static inspection; no destructive proof-of-concept was executed.
 

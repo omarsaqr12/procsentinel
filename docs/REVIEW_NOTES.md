@@ -1,5 +1,8 @@
 # Engineering review notes — 2026-09-16
 
+> Historical review of the baseline below. Later repairs were merged; consult
+> [current engineering status](CURRENT_STATUS.md) for the updated state.
+
 **Baseline:** `15dddb6236c8a665644fcbc056a7e3681906041b` on `main`. This is a source review with limited remote CI verification, **not** full independent validation.
 
 ## Scope and method
