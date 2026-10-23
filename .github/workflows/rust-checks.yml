@@ -1,47 +1,32 @@
 name: Rust checks
 
 on:
+  push:
+    branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  formatting:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-      - name: Check formatting
-        run: cargo fmt --all -- --check
-
-  compile:
+  verify:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Toolchain versions
         run: |
           rustc --version
           cargo --version
+      - name: Check formatting
+        run: cargo fmt --all -- --check
       - name: Compile
         run: cargo check --locked
-
-  unit-tests:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
       - name: Unit tests
         run: cargo test --locked
-
-  agent-smoke:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
       - name: Build process agent
         run: cargo build --locked
-      - name: Verify loopback-only health and process endpoints
+      - name: Verify loopback health and process endpoints
         run: bash scripts/ci_agent_smoke.sh
